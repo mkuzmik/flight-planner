@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gpx xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" version="1.1" creator="IXOweb" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <desc>AISweb 3.1411705</desc>
+    <author>
+      <name>R-SYS s.r.o.</name>
+    </author>
+    <time>2026-04-26T14:56:28.6421858+00:00</time>
+  </metadata>
+  <rte>
+    <name>GRADY OBCZAJKA</name>
+    <rtept lat="52.451222222" lon="20.651861111">
+      <ele>104.851199840626</ele>
+      <time>0001-01-01T00:00:00</time>
+      <name>EPMO</name>
+    </rtept>
+    <rtept lat="52.429166667" lon="20.654166667">
+      <ele>457.20915000</ele>
+      <name>EPMOU</name>
+    </rtept>
+    <rtept lat="52.377777778" lon="20.916666667">
+      <ele>457.20915000</ele>
+      <name>EPMOJ</name>
+    </rtept>
+    <rtept lat="52.533038889" lon="21.081505556">
+      <ele>457.20915000</ele>
+      <name>EPNCB</name>
+    </rtept>
+    <rtept lat="52.5928035" lon="21.4584581">
+      <ele>457.20915000</ele>
+      <name>WYSZKOW</name>
+    </rtept>
+    <rtept lat="52.8000429" lon="21.897638">
+      <ele>457.20915000</ele>
+      <name>OSTROWMAZOWIECKA</name>
+    </rtept>
+    <rtept lat="52.836975" lon="21.777636111">
+      <ele>457.20915000</ele>
+      <name>AEPGY</name>
+    </rtept>
+    <rtept lat="52.8892595" lon="21.399349">
+      <ele>457.20915000</ele>
+      <name>ROZAN</name>
+    </rtept>
+    <rtept lat="52.865678" lon="21.101224">
+      <ele>457.20915000</ele>
+      <name>MAKOWMAZOWIECKI</name>
+    </rtept>
+    <rtept lat="52.8819798" lon="20.6191479">
+      <ele>457.20915000</ele>
+      <name>CIECHANOW</name>
+    </rtept>
+    <rtept lat="52.58" lon="20.773611111">
+      <ele>457.20915000</ele>
+      <name>EPMOY</name>
+    </rtept>
+    <rtept lat="52.474444444" lon="20.648611111">
+      <ele>457.20915000</ele>
+      <name>EPMOI</name>
+    </rtept>
+    <rtept lat="52.451222222" lon="20.651861111">
+      <ele>104.851199840626</ele>
+      <name>EPMO</name>
+    </rtept>
+  </rte>
+</gpx>
