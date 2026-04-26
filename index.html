@@ -60,6 +60,7 @@
             body { background: white; }
             .container { max-width: 100%; padding: 0; }
             .card:first-child { display: none; }
+            #infoBarCard { display: none; }
             #status { display: none; }
             .btn-row { display: none; }
             .card { padding: 0; box-shadow: none; border-radius: 0; margin-bottom: 0.5rem; }
@@ -134,7 +135,7 @@
     <div id="status"></div>
 
     <div id="results" style="display:none">
-        <div class="card" style="padding: 0.9rem 1.5rem; margin-bottom: 1rem;">
+        <div class="card" id="infoBarCard" style="padding: 0.9rem 1.5rem; margin-bottom: 1rem;">
             <div class="info-bar" id="infoBar"></div>
         </div>
         <div class="card" style="overflow-x: auto; padding: 0;">
