@@ -62,9 +62,13 @@
             .card { padding: 0; box-shadow: none; border-radius: 0; margin-bottom: 0.5rem; }
             h1 { font-size: 1.1rem; margin-bottom: 0.4rem; }
             .info-bar { font-size: 0.75rem; margin-bottom: 0.4rem; }
-            table { font-size: 0.72rem; width: 100%; }
+            table { font-size: 0.72rem; width: 100%; table-layout: fixed; }
             thead th { white-space: normal; padding: 0.25rem 0.3rem; }
             tbody td { padding: 0.25rem 0.3rem; }
+            thead th:nth-child(1), thead th:nth-child(2),
+            tbody td:nth-child(1), tbody td:nth-child(2) {
+                max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
         }
     </style>
 </head>
