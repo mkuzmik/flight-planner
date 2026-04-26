@@ -209,13 +209,14 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
     ].join(' &thinsp;·&thinsp; ');
     document.getElementById('infoBar').innerHTML = infoParts;
 
-    const cols = ['FROM', 'TO', 'TC', '(-)DECL', 'MC', 'WCA', 'MH', 'NM', 'GS (kt)', 'ETE', 'Fuel (gal)'];
+    const cols = ['FROM', 'TO', 'TC', '(-)DECL', 'MC', 'WCA', 'MH', 'NM', 'GS (kt)', 'ETE', 'Fuel (gal)', 'Total Fuel (gal)'];
     let html = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
 
     let totDist = 0, totFuel = 0, totTime = 0;
 
     for (const leg of legs) {
         const ok = isFinite(leg.gs) && leg.gs > 0;
+        if (ok) { totFuel += leg.fuel; totTime += leg.eteH; }
         html += `<tr${ok ? '' : ' class="row-invalid"'}>
             <td>${leg.from}</td>
             <td>${leg.to}</td>
@@ -228,9 +229,9 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
             <td>${ok ? r1(leg.gs) : '—'}</td>
             <td>${ok ? fmtTime(leg.eteH) : '—'}</td>
             <td>${ok && isFinite(leg.fuel) ? r2(leg.fuel) : '—'}</td>
+            <td>${ok && isFinite(leg.fuel) ? r2(totFuel) : '—'}</td>
         </tr>`;
         totDist += leg.dist;
-        if (ok) { totFuel += leg.fuel; totTime += leg.eteH; }
     }
 
     html += `<tr class="totals-row">
@@ -238,6 +239,7 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
         <td>${r1(totDist)}</td>
         <td>—</td>
         <td>${fmtTime(totTime)}</td>
+        <td>—</td>
         <td>${r2(totFuel)}</td>
     </tr></tbody>`;
 
