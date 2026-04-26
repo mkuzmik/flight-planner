@@ -378,19 +378,7 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
 
     document.getElementById('results').style.display = 'block';
 }
-
-// ── Version tag — fetch commit SHA from GitHub API ────────────────────────────
-(async () => {
-    try {
-        const r = await fetch('https://api.github.com/repos/mkuzmik/flight-planner/commits/main',
-                              { headers: { Accept: 'application/vnd.github.sha' } });
-        if (r.ok) {
-            const sha = (await r.text()).slice(0, 7);
-            document.getElementById('versionTag').textContent = sha;
-        }
-    } catch { /* offline or rate-limited — leave empty */ }
-})();
 </script>
-<div id="versionTag" style="display:none;position:fixed;bottom:4mm;right:6mm;font-size:0.62rem;color:#aaa;font-family:monospace;"></div>
+<div id="versionTag" style="display:none;position:fixed;bottom:4mm;right:6mm;font-size:0.62rem;color:#aaa;font-family:monospace;">__COMMIT_HASH__</div>
 </body>
 </html>
