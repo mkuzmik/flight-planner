@@ -42,9 +42,12 @@
         table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
         thead th { background: #1e3a5f; color: white; padding: 0.55rem 0.75rem;
                    white-space: nowrap; text-align: right; }
-        thead th:first-child, thead th:nth-child(2) { text-align: left; }
         tbody td { padding: 0.42rem 0.75rem; border-bottom: 1px solid #e5e7eb; text-align: right; }
-        tbody td:first-child, tbody td:nth-child(2) { text-align: left; }
+        tbody td:first-child, tbody td:nth-child(2),
+        thead th:first-child, thead th:nth-child(2) {
+            max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            text-align: left;
+        }
         tbody tr:hover td { background: #eff6ff; }
         tbody tr:nth-child(even) td { background: #f8fafc; }
         tbody tr:nth-child(even):hover td { background: #eff6ff; }
