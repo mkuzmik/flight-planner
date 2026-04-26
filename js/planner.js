@@ -104,8 +104,9 @@ export function computeFuelSummary({ tripFuel, taxiFuel, climbFuel, fuelGph, res
     const gph       = safe(fuelGph);
     const resMins   = safe(reserveMin);
     const altFuel   = safe(alternateFuel);
-    const climbTotal  = climb * 2;
-    const reserveFuel = gph * resMins / 60;
-    const total       = trip + taxi + climbTotal + reserveFuel + altFuel;
-    return { tripFuel: trip, taxiFuel: taxi, climbFuel: climb, climbTotal, reserveFuel, reserveMin: resMins, alternateFuel: altFuel, total };
+    const climbTotal   = climb * 2;
+    const holdingFuel  = gph * 10 / 60;
+    const reserveFuel  = gph * resMins / 60;
+    const total        = trip + taxi + climbTotal + holdingFuel + reserveFuel + altFuel;
+    return { tripFuel: trip, taxiFuel: taxi, climbFuel: climb, climbTotal, holdingFuel, reserveFuel, reserveMin: resMins, alternateFuel: altFuel, total };
 }

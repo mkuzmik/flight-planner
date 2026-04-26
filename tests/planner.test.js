@@ -270,9 +270,10 @@ describe('computeFuelSummary', () => {
         const s = computeFuelSummary({ tripFuel: 10, taxiFuel: 1.5, climbFuel: 2, fuelGph: 6, reserveMin: 45 });
         expect(s.tripFuel).toBeCloseTo(10);
         expect(s.taxiFuel).toBeCloseTo(1.5);
-        expect(s.climbTotal).toBeCloseTo(4);    // 2 × 2
-        expect(s.reserveFuel).toBeCloseTo(4.5); // 6 × 45/60
-        expect(s.total).toBeCloseTo(20);        // 10 + 1.5 + 4 + 4.5
+        expect(s.climbTotal).toBeCloseTo(4);      // 2 × 2
+        expect(s.holdingFuel).toBeCloseTo(1);     // 6 × 10/60
+        expect(s.reserveFuel).toBeCloseTo(4.5);   // 6 × 45/60
+        expect(s.total).toBeCloseTo(21);          // 10 + 1.5 + 4 + 1 + 4.5
     });
 
     it('uses 60-min reserve correctly', () => {
@@ -297,7 +298,7 @@ describe('computeFuelSummary', () => {
     it('alternateFuel is included in total', () => {
         const s = computeFuelSummary({ tripFuel: 10, taxiFuel: 0, climbFuel: 0, fuelGph: 6, reserveMin: 45, alternateFuel: 3 });
         expect(s.alternateFuel).toBeCloseTo(3);
-        expect(s.total).toBeCloseTo(3 + 10 + 4.5); // alt + trip + reserve
+        expect(s.total).toBeCloseTo(3 + 10 + 1 + 4.5); // alt + trip + holding + reserve
     });
 
     it('alternateFuel defaults to 0 when omitted', () => {
@@ -312,7 +313,7 @@ describe('computeFuelSummary', () => {
 
     it('zero climb and taxi fuel produce correct total', () => {
         const s = computeFuelSummary({ tripFuel: 8, taxiFuel: 0, climbFuel: 0, fuelGph: 4, reserveMin: 45 });
-        expect(s.total).toBeCloseTo(11); // 8 + 0 + 0 + 3
+        expect(s.total).toBeCloseTo(11 + 4 * 10 / 60); // 8 + holding(4gph) + reserve(3)
     });
 });
 

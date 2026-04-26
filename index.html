@@ -357,6 +357,7 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         row('Taxi / runup', r2(s.taxiFuel)) +
         row('Climb fuel',   r2(s.climbTotal), `${r2(s.climbFuel)} gal × 2 (departure + dest. go-around)`) +
         altRow +
+        row('Holding (10 min)', r2(s.holdingFuel)) +
         row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +
         `<tr style="border-top:2px solid #1e3a5f"><td style="padding:0.4rem 0.5rem;font-weight:700">Total required</td>` +
         `<td style="padding:0.4rem 0.5rem;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r2(s.total)} gal</td>` +
