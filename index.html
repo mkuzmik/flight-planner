@@ -120,7 +120,7 @@ async function fetchDeclination(lat, lon) {
     const now = new Date();
     const y = now.getUTCFullYear(), m = now.getUTCMonth() + 1, d = now.getUTCDate();
     const url = 'https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination'
-              + `?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`
+              + `?lat1=${lat.toFixed(4)}&lon1=${lon.toFixed(4)}`
               + `&key=zNEw7&resultFormat=json`
               + `&startYear=${y}&startMonth=${m}&startDay=${d}`;
     const resp = await fetch(url);
