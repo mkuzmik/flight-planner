@@ -53,16 +53,18 @@
         .totals-row td:not(:first-child) { text-align: right; }
 
         @media print {
-            @page { size: A4 landscape; margin: 10mm; }
-            body { background: white; font-size: 0.78rem; }
+            @page { size: A4 landscape; margin: 8mm; }
+            body { background: white; }
             .container { max-width: 100%; padding: 0; }
             .card:first-child { display: none; }
             #status { display: none; }
             .btn-row { display: none; }
-            .info-bar { margin-bottom: 0.5rem; }
-            table { font-size: 0.75rem; }
-            thead th, tbody td { padding: 0.3rem 0.4rem; }
-            h1 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+            .card { padding: 0; box-shadow: none; border-radius: 0; margin-bottom: 0.5rem; }
+            h1 { font-size: 1.1rem; margin-bottom: 0.4rem; }
+            .info-bar { font-size: 0.75rem; margin-bottom: 0.4rem; }
+            table { font-size: 0.72rem; width: 100%; }
+            thead th { white-space: normal; padding: 0.25rem 0.3rem; }
+            tbody td { padding: 0.25rem 0.3rem; }
         }
     </style>
 </head>
