@@ -53,10 +53,16 @@
         .totals-row td:not(:first-child) { text-align: right; }
 
         @media print {
-            body { background: white; }
+            @page { size: A4 landscape; margin: 10mm; }
+            body { background: white; font-size: 0.78rem; }
+            .container { max-width: 100%; padding: 0; }
             .card:first-child { display: none; }
             #status { display: none; }
             .btn-row { display: none; }
+            .info-bar { margin-bottom: 0.5rem; }
+            table { font-size: 0.75rem; }
+            thead th, tbody td { padding: 0.3rem 0.4rem; }
+            h1 { font-size: 1.2rem; margin-bottom: 0.5rem; }
         }
     </style>
 </head>
