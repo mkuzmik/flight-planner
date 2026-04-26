@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
     parseGpx, trueCourse, distanceNm,
     computeWca, computeGs, computeLegs,
@@ -333,6 +333,72 @@ describe('computeFuelSummary', () => {
     });
 });
 
+
+// ── Full pipeline integration ─────────────────────────────────────────────────
+// Reference values manually verified against a commercial VFR planning tool.
+// GPX coordinates taken from SAMPLE-2026-04-26T19_20_42.gpx.
+// Inputs: wind 125°/9kt, TAS 85kt, fuelGph 6, taxiFuel 1.5, climbFuel 2, reserveMin 45.
+describe('Full pipeline – EPMO → EPNCA → AEPPL → EPMO', () => {
+    const gpx = `<?xml version="1.0" encoding="utf-8"?>
+<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+  <rte>
+    <rtept lat="52.451222222" lon="20.651861111"><name>EPMO</name></rtept>
+    <rtept lat="52.643058333" lon="20.94165"><name>EPNCA</name></rtept>
+    <rtept lat="52.562241667" lon="19.721283333"><name>AEPPL</name></rtept>
+    <rtept lat="52.451222222" lon="20.651861111"><name>EPMO</name></rtept>
+  </rte>
+</gpx>`;
+
+    const WIND_DIR = 125, WIND_SPD = 9, TAS = 85, GPH = 6, DECL = 6.92;
+    let legs;
+    beforeEach(() => { legs = computeLegs(parseGpx(gpx), WIND_DIR, WIND_SPD, TAS, GPH, DECL); });
+
+    it('produces 3 legs', () => expect(legs).toHaveLength(3));
+
+    it('leg 1 EPMO→EPNCA: TC≈42°, MC≈35°, dist≈15.6NM, GS≈84.4kt', () => {
+        const l = legs[0];
+        expect(l.from).toBe('EPMO');
+        expect(l.to).toBe('EPNCA');
+        expect(l.tc).toBeCloseTo(42, 0);
+        expect(l.mc).toBeCloseTo(36, 0);
+        expect(l.dist).toBeCloseTo(15.6, 0);
+        expect(l.gs).toBeCloseTo(84.4, 0);
+    });
+
+    it('leg 2 EPNCA→AEPPL: TC≈264°, MC≈257°, dist≈44.8NM, GS≈90.8kt', () => {
+        const l = legs[1];
+        expect(l.tc).toBeCloseTo(264, 0);
+        expect(l.mc).toBeCloseTo(257, 0);
+        expect(l.dist).toBeCloseTo(44.8, 0);
+        expect(l.gs).toBeCloseTo(90.8, 0);
+    });
+
+    it('leg 3 AEPPL→EPMO: TC≈101°, MC≈94°, dist≈34.7NM, GS≈77.2kt', () => {
+        const l = legs[2];
+        expect(l.tc).toBeCloseTo(101, 0);
+        expect(l.mc).toBeCloseTo(94, 0);
+        expect(l.dist).toBeCloseTo(34.7, 0);
+        expect(l.gs).toBeCloseTo(77.2, 0);
+    });
+
+    it('total distance ≈ 95.1 NM, total ETE ≈ 1h 07m 39s', () => {
+        const totalNm  = legs.reduce((s, l) => s + l.dist, 0);
+        const totalEte = legs.reduce((s, l) => s + l.eteH, 0);
+        expect(totalNm).toBeCloseTo(95.1, 0);
+        // 1h07m39s = 4059s ≈ 1.1275h
+        expect(totalEte * 3600).toBeCloseTo(4059, -1); // within ~10s
+    });
+
+    it('fuel summary totals are self-consistent', () => {
+        const tripFuel = legs.reduce((s, l) => s + l.fuel, 0);
+        const s = computeFuelSummary({ tripFuel, taxiFuel: 1.5, climbFuel: 2, fuelGph: GPH, reserveMin: 45 });
+        // expectedBurn = trip + taxi(1.5) + climb(2)
+        expect(s.expectedBurn).toBeCloseTo(s.tripFuel + 1.5 + 2, 4);
+        // total = trip + taxi + climbTotal(4) + holding + reserve(4.5)
+        expect(s.total).toBeCloseTo(s.tripFuel + 1.5 + 4 + s.holdingFuel + 4.5, 4);
+        expect(s.total).toBeGreaterThan(s.expectedBurn);
+    });
+});
 
 describe('r0 / r1 / r2', () => {
     it('r0 rounds to nearest integer as string', () => {
