@@ -101,6 +101,21 @@
                 <label>Fuel Consumption <small>(gal/h)</small></label>
                 <input type="number" id="fuelGph" placeholder="e.g. 6.5" min="0.1" step="0.1">
             </div>
+            <div>
+                <label>Taxi/Runup Fuel <small>(gal)</small></label>
+                <input type="number" id="taxiFuel" placeholder="e.g. 1.5" min="0" step="0.1" value="0">
+            </div>
+            <div>
+                <label>Climb Fuel <small>(gal, ×2 for go-around)</small></label>
+                <input type="number" id="climbFuel" placeholder="e.g. 2.0" min="0" step="0.1" value="0">
+            </div>
+            <div>
+                <label>Fuel Reserve</label>
+                <select id="reserveMin" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
+                    <option value="45" selected>45 min (VFR day)</option>
+                    <option value="60">60 min (extended)</option>
+                </select>
+            </div>
         </div>
         <div class="btn-row">
             <button class="btn-primary" id="calcBtn">Calculate Plan</button>
@@ -118,11 +133,12 @@
         <div class="card" style="overflow-x: auto; padding: 0;">
             <table id="planTable"></table>
         </div>
+        <div class="card" id="fuelSummary" style="margin-top: 1rem;"></div>
     </div>
 </div>
 
 <script type="module">
-import { parseGpx, computeLegs, fmtTime, r0, r1, r2 } from './js/planner.js';
+import { parseGpx, computeLegs, computeFuelSummary, fmtTime, r0, r1, r2 } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', calculate);
@@ -149,19 +165,25 @@ async function dryRun() {
     document.getElementById('windSpeed').value = 15;
     document.getElementById('tas').value       = 100;
     document.getElementById('fuelGph').value   = 6.5;
+    document.getElementById('taxiFuel').value  = 1.5;
+    document.getElementById('climbFuel').value = 2.0;
+    document.getElementById('reserveMin').value = 45;
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5);
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 async function calculate() {
-    const file      = document.getElementById('gpxFile').files[0];
-    const windDir   = parseFloat(document.getElementById('windDir').value);
-    const windSpeed = parseFloat(document.getElementById('windSpeed').value);
-    const tas       = parseFloat(document.getElementById('tas').value);
-    const fuelGph   = parseFloat(document.getElementById('fuelGph').value);
+    const file       = document.getElementById('gpxFile').files[0];
+    const windDir    = parseFloat(document.getElementById('windDir').value);
+    const windSpeed  = parseFloat(document.getElementById('windSpeed').value);
+    const tas        = parseFloat(document.getElementById('tas').value);
+    const fuelGph    = parseFloat(document.getElementById('fuelGph').value);
+    const taxiFuel   = parseFloat(document.getElementById('taxiFuel').value)  || 0;
+    const climbFuel  = parseFloat(document.getElementById('climbFuel').value) || 0;
+    const reserveMin = parseFloat(document.getElementById('reserveMin').value);
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
@@ -169,11 +191,11 @@ async function calculate() {
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin);
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-async function run(gpxText, windDir, windSpeed, tas, fuelGph) {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45) {
     const btn = document.getElementById('calcBtn');
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
@@ -195,7 +217,7 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph) {
         }
 
         renderResults(computeLegs(points, windDir, windSpeed, tas, fuelGph, declination),
-                      declination, windDir, windSpeed, tas, fuelGph);
+                      declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin);
     } catch (e) {
         err(e.message);
     } finally {
@@ -215,7 +237,7 @@ function err(msg) {
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
+function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin) {
     const infoParts = [
         `Wind: <b>${windDir}°/${windSpeed}kt</b>`,
         `TAS: <b>${tas}kt</b>`,
@@ -228,10 +250,12 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
     let html = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
 
     let totDist = 0, totFuel = 0, totTime = 0;
+    let hasInvalid = false;
 
     for (const leg of legs) {
         const ok = isFinite(leg.gs) && leg.gs > 0;
         if (ok) { totFuel += leg.fuel; totTime += leg.eteH; }
+        else hasInvalid = true;
         html += `<tr${ok ? '' : ' class="row-invalid"'}>
             <td>${leg.from}</td>
             <td>${leg.to}</td>
@@ -257,6 +281,26 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
     </tr></tbody>`;
 
     document.getElementById('planTable').innerHTML = html;
+
+    // Fuel summary
+    const s = computeFuelSummary({ tripFuel: totFuel, taxiFuel, climbFuel, fuelGph, reserveMin });
+    const warn = hasInvalid ? '<p style="color:#dc2626;font-size:0.82rem;margin-bottom:0.5rem">⚠ Some legs are invalid — trip fuel may be incomplete.</p>' : '';
+    const row = (label, value, note = '') =>
+        `<tr><td style="padding:0.3rem 0.5rem;color:#555">${label}</td>` +
+        `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums">${value} gal</td>` +
+        `<td style="padding:0.3rem 0.5rem;font-size:0.78rem;color:#94a3b8">${note}</td></tr>`;
+    document.getElementById('fuelSummary').innerHTML =
+        `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Fuel Summary</h3>` +
+        warn +
+        `<table style="border-collapse:collapse;font-size:0.88rem"><tbody>` +
+        row('Trip fuel',   r2(s.tripFuel)) +
+        row('Taxi / runup', r2(s.taxiFuel)) +
+        row('Climb fuel', r2(s.climbTotal), `${r2(s.climbFuel)} gal × 2 (go-around)`) +
+        row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +
+        `<tr style="border-top:2px solid #1e3a5f"><td style="padding:0.4rem 0.5rem;font-weight:700">Total required</td>` +
+        `<td style="padding:0.4rem 0.5rem;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r2(s.total)} gal</td><td></td></tr>` +
+        `</tbody></table>`;
+
     document.getElementById('results').style.display = 'block';
 }
 </script>

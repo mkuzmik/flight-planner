@@ -94,3 +94,17 @@ export function fmtTime(h) {
 export const r0 = v => String(Math.round(v));
 export const r1 = v => (Math.round(v * 10) / 10).toFixed(1);
 export const r2 = v => (Math.round(v * 100) / 100).toFixed(2);
+
+// ── Fuel summary ──────────────────────────────────────────────────────────────
+export function computeFuelSummary({ tripFuel, taxiFuel, climbFuel, fuelGph, reserveMin }) {
+    const safe = v => (isFinite(v) && v >= 0 ? v : 0);
+    const trip      = safe(tripFuel);
+    const taxi      = safe(taxiFuel);
+    const climb     = safe(climbFuel);
+    const gph       = safe(fuelGph);
+    const resMins   = safe(reserveMin);
+    const climbTotal  = climb * 2;
+    const reserveFuel = gph * resMins / 60;
+    const total       = trip + taxi + climbTotal + reserveFuel;
+    return { tripFuel: trip, taxiFuel: taxi, climbFuel: climb, climbTotal, reserveFuel, reserveMin: resMins, total };
+}

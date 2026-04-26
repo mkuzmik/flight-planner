@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     parseGpx, trueCourse, distanceNm,
     computeWca, computeGs, computeLegs,
+    computeFuelSummary,
     fmtTime, r0, r1, r2,
 } from '../js/planner.js';
 
@@ -263,7 +264,43 @@ describe('fmtTime', () => {
     it('NaN → "—"', () => expect(fmtTime(NaN)).toBe('—'));
 });
 
-// ── r0 / r1 / r2 ─────────────────────────────────────────────────────────────
+// ── computeFuelSummary ────────────────────────────────────────────────────────
+describe('computeFuelSummary', () => {
+    it('sums all components correctly', () => {
+        const s = computeFuelSummary({ tripFuel: 10, taxiFuel: 1.5, climbFuel: 2, fuelGph: 6, reserveMin: 45 });
+        expect(s.tripFuel).toBeCloseTo(10);
+        expect(s.taxiFuel).toBeCloseTo(1.5);
+        expect(s.climbTotal).toBeCloseTo(4);    // 2 × 2
+        expect(s.reserveFuel).toBeCloseTo(4.5); // 6 × 45/60
+        expect(s.total).toBeCloseTo(20);        // 10 + 1.5 + 4 + 4.5
+    });
+
+    it('uses 60-min reserve correctly', () => {
+        const s = computeFuelSummary({ tripFuel: 0, taxiFuel: 0, climbFuel: 0, fuelGph: 6, reserveMin: 60 });
+        expect(s.reserveFuel).toBeCloseTo(6);
+        expect(s.reserveMin).toBe(60);
+    });
+
+    it('NaN inputs default to 0', () => {
+        const s = computeFuelSummary({ tripFuel: NaN, taxiFuel: NaN, climbFuel: NaN, fuelGph: NaN, reserveMin: NaN });
+        expect(s.total).toBe(0);
+    });
+
+    it('negative inputs default to 0', () => {
+        const s = computeFuelSummary({ tripFuel: -5, taxiFuel: -1, climbFuel: -2, fuelGph: 6, reserveMin: 45 });
+        expect(s.tripFuel).toBe(0);
+        expect(s.taxiFuel).toBe(0);
+        expect(s.climbTotal).toBe(0);
+        expect(s.reserveFuel).toBeCloseTo(4.5);
+    });
+
+    it('zero climb and taxi fuel produce correct total', () => {
+        const s = computeFuelSummary({ tripFuel: 8, taxiFuel: 0, climbFuel: 0, fuelGph: 4, reserveMin: 45 });
+        expect(s.total).toBeCloseTo(11); // 8 + 0 + 0 + 3
+    });
+});
+
+
 describe('r0 / r1 / r2', () => {
     it('r0 rounds to nearest integer as string', () => {
         expect(r0(90.4)).toBe('90');
