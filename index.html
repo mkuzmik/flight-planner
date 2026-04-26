@@ -60,7 +60,7 @@
             body { background: white; }
             .container { max-width: 100%; padding: 0; }
             .card:first-child { display: none; }
-            #formCard { display: none; }
+            #formCard, #legendCard { display: none; }
             #infoBarCard { display: none; }
             #status { display: none; }
             .btn-row { display: none; }
@@ -396,5 +396,38 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
     document.getElementById('results').style.display = 'block';
 }
 </script>
+
+<div class="card" id="legendCard" style="margin-top:2rem;font-size:0.85rem;color:#444;">
+  <h3 style="margin:0 0 1rem;font-size:1rem;letter-spacing:.04em;text-transform:uppercase;color:#555;">Legend</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem 3rem;">
+    <div>
+      <h4 style="margin:0 0 .5rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#888;">Navigation</h4>
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .75rem;">
+        <dt><b>TC</b></dt><dd>True Course — bearing from A to B relative to true north</dd>
+        <dt><b>DECL</b></dt><dd>Magnetic declination — difference between true and magnetic north at route centroid</dd>
+        <dt><b>MC</b></dt><dd>Magnetic Course — TC adjusted for declination (TC − decl)</dd>
+        <dt><b>WCA</b></dt><dd>Wind Correction Angle — how much to crab into the wind to track the desired course</dd>
+        <dt><b>MH</b></dt><dd>Magnetic Heading — the heading to fly (MC + WCA)</dd>
+        <dt><b>GS</b></dt><dd>Ground Speed — actual speed over ground, accounting for wind component</dd>
+        <dt><b>ETE</b></dt><dd>Estimated Time En-route — leg distance ÷ ground speed</dd>
+        <dt><b>TAS</b></dt><dd>True Air Speed — airspeed corrected for altitude and temperature</dd>
+      </dl>
+    </div>
+    <div>
+      <h4 style="margin:0 0 .5rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#888;">Fuel</h4>
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .75rem;">
+        <dt><b>Trip</b></dt><dd>Fuel burned flying all legs at cruise consumption (GPH × ETE)</dd>
+        <dt><b>Taxi</b></dt><dd>Fixed allowance for taxi and engine run-up before departure</dd>
+        <dt><b>Climb</b></dt><dd>Extra fuel for one full-power climb; counted twice in total (departure + go-around)</dd>
+        <dt><b>T&amp;G</b></dt><dd>Touch-and-go: count × (circuit time × GPH + one climb fuel)</dd>
+        <dt><b>Expected burn</b></dt><dd>Taxi + climb + T&amp;G fuel + trip — the planned consumption with no contingencies</dd>
+        <dt><b>Go-around</b></dt><dd>Second climb allowance, budgeted for a missed approach at destination</dd>
+        <dt><b>Alternate</b></dt><dd>Fuel to fly from destination to alternate airport + one go-around</dd>
+        <dt><b>Holding</b></dt><dd>Fixed 10-minute holding reserve at cruise consumption</dd>
+        <dt><b>Reserve</b></dt><dd>Regulatory final reserve (45 or 60 min at cruise consumption)</dd>
+      </dl>
+    </div>
+  </div>
+</div>
 </body>
 </html>
