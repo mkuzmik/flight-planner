@@ -253,10 +253,11 @@ describe('computeLegs', () => {
 
 // ── fmtTime ───────────────────────────────────────────────────────────────────
 describe('fmtTime', () => {
-    it('0.5h → "30m"', () => expect(fmtTime(0.5)).toBe('30m'));
-    it('1.0h → "1h 00m"', () => expect(fmtTime(1.0)).toBe('1h 00m'));
-    it('1.5h → "1h 30m"', () => expect(fmtTime(1.5)).toBe('1h 30m'));
-    it('2.0h → "2h 00m"', () => expect(fmtTime(2.0)).toBe('2h 00m'));
+    it('0.5h → "30:00"', () => expect(fmtTime(0.5)).toBe('30:00'));
+    it('1.0h → "1:00:00"', () => expect(fmtTime(1.0)).toBe('1:00:00'));
+    it('1.5h → "1:30:00"', () => expect(fmtTime(1.5)).toBe('1:30:00'));
+    it('2.0h → "2:00:00"', () => expect(fmtTime(2.0)).toBe('2:00:00'));
+    it('25 minutes 30 seconds → "25:30"', () => expect(fmtTime(25.5 / 60)).toBe('25:30'));
     it('0 → "—"', () => expect(fmtTime(0)).toBe('—'));
     it('negative → "—"', () => expect(fmtTime(-1)).toBe('—'));
     it('NaN → "—"', () => expect(fmtTime(NaN)).toBe('—'));

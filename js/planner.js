@@ -82,9 +82,13 @@ export function computeLegs(points, windDir, windSpeed, tas, fuelGph, declinatio
 // ── Formatting ────────────────────────────────────────────────────────────────
 export function fmtTime(h) {
     if (!isFinite(h) || h <= 0) return '—';
-    const mins = Math.round(h * 60);
-    const hh = Math.floor(mins / 60), mm = mins % 60;
-    return hh > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${mm}m`;
+    const totalSec = Math.round(h * 3600);
+    const hh = Math.floor(totalSec / 3600);
+    const mm = Math.floor((totalSec % 3600) / 60);
+    const ss = totalSec % 60;
+    if (hh > 0)
+        return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    return `${mm}:${String(ss).padStart(2, '0')}`;
 }
 
 export const r0 = v => String(Math.round(v));
