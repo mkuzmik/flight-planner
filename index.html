@@ -93,18 +93,6 @@
                 <label>Mag. Declination <small>(° — blank = auto)</small></label>
                 <input type="number" id="declOverride" placeholder="auto via NOAA" step="0.1">
             </div>
-            <div>
-                <label>Aircraft Type <small>(optional)</small></label>
-                <input type="text" id="acType" placeholder="e.g. C172">
-            </div>
-            <div>
-                <label>Registration <small>(optional)</small></label>
-                <input type="text" id="acReg" placeholder="e.g. SP-ABC">
-            </div>
-            <div>
-                <label>Departure Time <small>(optional)</small></label>
-                <input type="text" id="depTime" placeholder="e.g. 14:00 UTC">
-            </div>
         </div>
         <div class="btn-row">
             <button class="btn-primary" id="calcBtn">Calculate Plan</button>
@@ -128,7 +116,6 @@
 import { parseGpx, computeLegs, fmtTime, r1, r2 } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
-document.getElementById('flightDate').valueAsDate = new Date();
 document.getElementById('calcBtn').addEventListener('click', calculate);
 document.getElementById('printBtn').addEventListener('click', () => window.print());
 
@@ -156,7 +143,6 @@ async function calculate() {
     const windSpeed = parseFloat(document.getElementById('windSpeed').value);
     const tas       = parseFloat(document.getElementById('tas').value);
     const fuelGph   = parseFloat(document.getElementById('fuelGph').value);
-    const dateStr   = document.getElementById('flightDate').value;
     const declInput = document.getElementById('declOverride').value.trim();
 
     if (!file)                                        return err('Please select a GPX file.');
@@ -164,14 +150,13 @@ async function calculate() {
     if (isNaN(windSpeed) || windSpeed < 0)            return err('Wind speed must be ≥ 0.');
     if (isNaN(tas) || tas <= 0)                       return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)               return err('Fuel consumption must be > 0.');
-    if (!dateStr)                                     return err('Please select a date.');
 
     btn.disabled = true;
     setStatus('Parsing GPX…');
 
     try {
         const points = parseGpx(await file.text());
-        const flightDate = new Date(dateStr + 'T12:00:00Z');
+        const today  = new Date();
 
         let declination;
         if (declInput !== '') {
@@ -183,7 +168,7 @@ async function calculate() {
             const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
             const cLon = points.reduce((s, p) => s + p.lon, 0) / points.length;
             try {
-                declination = await fetchDeclination(cLat, cLon, flightDate);
+                declination = await fetchDeclination(cLat, cLon, today);
                 setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
             } catch (e) {
                 return err('Could not fetch declination from NOAA (' + e.message +
@@ -192,7 +177,7 @@ async function calculate() {
         }
 
         renderResults(computeLegs(points, windDir, windSpeed, tas, fuelGph, declination),
-                      declination, windDir, windSpeed, tas, fuelGph, dateStr);
+                      declination, windDir, windSpeed, tas, fuelGph);
     } catch (e) {
         err(e.message);
     } finally {
@@ -212,18 +197,13 @@ function err(msg) {
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, dateStr) {
-    const val = id => document.getElementById(id).value;
+function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
     const infoParts = [
-        val('acType')  && `Aircraft: <b>${val('acType')}</b>`,
-        val('acReg')   && `Reg: <b>${val('acReg')}</b>`,
-        val('depTime') && `ETD: <b>${val('depTime')}</b>`,
-        `Date: <b>${dateStr}</b>`,
         `Wind: <b>${windDir}°/${windSpeed}kt</b>`,
         `TAS: <b>${tas}kt</b>`,
         `Fuel: <b>${fuelGph} gal/h</b>`,
         `Declination: <b>${decl.toFixed(2)}°</b>`,
-    ].filter(Boolean).join(' &thinsp;·&thinsp; ');
+    ].join(' &thinsp;·&thinsp; ');
     document.getElementById('infoBar').innerHTML = infoParts;
 
     const cols = ['FROM', 'TO', 'TC', '(-)DECL', 'MC', 'WCA', 'MH', 'NM', 'GS (kt)', 'ETE', 'Fuel (gal)'];

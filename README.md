@@ -25,7 +25,6 @@ Then open `http://localhost:3000`.
 | Wind Speed | Knots |
 | TAS | True airspeed, knots |
 | Fuel Consumption | US gallons per hour |
-| Date | Used to compute magnetic declination |
 | Mag. Declination | Optional override — leave blank to auto-fetch from NOAA |
 
 Magnetic declination is fetched automatically from the [NOAA IGRF API](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml) for the route centroid. Requires internet access; use the manual override if offline.
