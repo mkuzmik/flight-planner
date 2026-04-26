@@ -85,10 +85,6 @@
                 <label>Fuel Consumption <small>(gal/h)</small></label>
                 <input type="number" id="fuelGph" placeholder="e.g. 6.5" min="0.1" step="0.1">
             </div>
-            <div>
-                <label>Mag. Declination <small>(° — blank = auto)</small></label>
-                <input type="number" id="declOverride" placeholder="auto via NOAA" step="0.1">
-            </div>
         </div>
         <div class="btn-row">
             <button class="btn-primary" id="calcBtn">Calculate Plan</button>
@@ -140,7 +136,6 @@ async function calculate() {
     const windSpeed = parseFloat(document.getElementById('windSpeed').value);
     const tas       = parseFloat(document.getElementById('tas').value);
     const fuelGph   = parseFloat(document.getElementById('fuelGph').value);
-    const declInput = document.getElementById('declOverride').value.trim();
 
     if (!file)                                        return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
@@ -155,21 +150,14 @@ async function calculate() {
         const points = parseGpx(await file.text());
 
         let declination;
-        if (declInput !== '') {
-            declination = parseFloat(declInput);
-            if (isNaN(declination)) return err('Invalid declination value.');
-            setStatus(`Using manual declination: ${declination.toFixed(1)}°`);
-        } else {
-            setStatus('Fetching magnetic declination from NOAA…');
-            const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
-            const cLon = points.reduce((s, p) => s + p.lon, 0) / points.length;
-            try {
-                declination = await fetchDeclination(cLat, cLon);
-                setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
-            } catch (e) {
-                return err('Could not fetch declination from NOAA (' + e.message +
-                    '). Enter it manually in the "Mag. Declination" field.');
-            }
+        setStatus('Fetching magnetic declination from NOAA…');
+        const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+        const cLon = points.reduce((s, p) => s + p.lon, 0) / points.length;
+        try {
+            declination = await fetchDeclination(cLat, cLon);
+            setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+        } catch (e) {
+            return err('Could not fetch declination from NOAA (' + e.message + ').');
         }
 
         renderResults(computeLegs(points, windDir, windSpeed, tas, fuelGph, declination),
