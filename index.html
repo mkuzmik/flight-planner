@@ -89,6 +89,7 @@
         </div>
         <div class="btn-row">
             <button class="btn-primary" id="calcBtn">Calculate Plan</button>
+            <button class="btn-secondary" id="dryRunBtn">⚡ Dry Run</button>
             <button class="btn-secondary" id="printBtn">🖨 Print</button>
         </div>
     </div>
@@ -111,6 +112,7 @@ import { parseGpx, computeLegs, fmtTime, r0, r1, r2 } from './js/planner.js';
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', calculate);
 document.getElementById('printBtn').addEventListener('click', () => window.print());
+document.getElementById('dryRunBtn').addEventListener('click', dryRun);
 
 // ── Magnetic declination — NOAA geomag API (single call for route centroid) ───
 async function fetchDeclination(lat, lon) {
@@ -126,34 +128,50 @@ async function fetchDeclination(lat, lon) {
     return json.result[0].declination; // degrees, East-positive
 }
 
+// ── Dry run — loads example GPX with preset values ───────────────────────────
+async function dryRun() {
+    document.getElementById('windDir').value   = 270;
+    document.getElementById('windSpeed').value = 15;
+    document.getElementById('tas').value       = 100;
+    document.getElementById('fuelGph').value   = 6.5;
+
+    const resp = await fetch('assets/example_flight_log.gpx');
+    if (!resp.ok) return err('Could not load example GPX file.');
+    await run(await resp.text(), 270, 15, 100, 6.5);
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 async function calculate() {
-    const btn = document.getElementById('calcBtn');
-    document.getElementById('results').style.display = 'none';
-    document.getElementById('status').className = '';
-
     const file      = document.getElementById('gpxFile').files[0];
     const windDir   = parseFloat(document.getElementById('windDir').value);
     const windSpeed = parseFloat(document.getElementById('windSpeed').value);
     const tas       = parseFloat(document.getElementById('tas').value);
     const fuelGph   = parseFloat(document.getElementById('fuelGph').value);
 
-    if (!file)                                        return err('Please select a GPX file.');
+    if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
-    if (isNaN(windSpeed) || windSpeed < 0)            return err('Wind speed must be ≥ 0.');
-    if (isNaN(tas) || tas <= 0)                       return err('TAS must be > 0.');
-    if (isNaN(fuelGph) || fuelGph <= 0)               return err('Fuel consumption must be > 0.');
+    if (isNaN(windSpeed) || windSpeed < 0)              return err('Wind speed must be ≥ 0.');
+    if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
+    if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
 
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph);
+}
+
+// ── Shared calculation core ───────────────────────────────────────────────────
+async function run(gpxText, windDir, windSpeed, tas, fuelGph) {
+    const btn = document.getElementById('calcBtn');
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('status').className = '';
     btn.disabled = true;
     setStatus('Parsing GPX…');
 
     try {
-        const points = parseGpx(await file.text());
+        const points = parseGpx(gpxText);
 
-        let declination;
         setStatus('Fetching magnetic declination from NOAA…');
         const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
         const cLon = points.reduce((s, p) => s + p.lon, 0) / points.length;
+        let declination;
         try {
             declination = await fetchDeclination(cLat, cLon);
             setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
