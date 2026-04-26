@@ -306,6 +306,8 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         `Wind: <b>${windDir}°/${windSpeed}kt</b> · TAS: <b>${tas}kt</b> · Fuel: <b>${fuelGph} gal/h</b>`
       + ` · Taxi: <b>${taxiFuel} gal</b> · Climb: <b>${climbFuel} gal</b>`
       + ` · Reserve: <b>${reserveMin} min</b>${altLabel} · Declination: <b>${decl.toFixed(2)}°</b>`;
+
+    const cols = ['FROM', 'TO', 'TC', '(-)DECL', 'MC', 'WCA', 'MH', 'NM', 'GS (kt)', 'ETE', 'Fuel (gal)'];
     let html = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
 
     let totDist = 0, totFuel = 0, totTime = 0;
