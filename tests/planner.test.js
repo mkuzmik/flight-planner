@@ -272,6 +272,7 @@ describe('computeFuelSummary', () => {
         expect(s.taxiFuel).toBeCloseTo(1.5);
         expect(s.climbTotal).toBeCloseTo(4);      // 2 × 2
         expect(s.expectedBurn).toBeCloseTo(13.5); // trip(10) + taxi(1.5) + climb(2)
+        expect(s.tgFuel).toBeCloseTo(0);          // no T&Gs
         expect(s.holdingFuel).toBeCloseTo(1);     // 6 × 10/60
         expect(s.reserveFuel).toBeCloseTo(4.5);   // 6 × 45/60
         expect(s.total).toBeCloseTo(21);          // 10 + 1.5 + 4 + 1 + 4.5
@@ -295,6 +296,20 @@ describe('computeFuelSummary', () => {
         expect(s.climbTotal).toBe(0);
         expect(s.reserveFuel).toBeCloseTo(4.5);
     });
+
+    it('T&G fuel included in expectedBurn and total', () => {
+        // 2 T&Gs, 6 min circuits, fuelGph=6, climbFuel=1
+        // tgFuel = 2 × (6×6/60 + 1) = 2 × (0.6 + 1) = 3.2
+        const s = computeFuelSummary({ tripFuel: 5, taxiFuel: 0, climbFuel: 1, fuelGph: 6, reserveMin: 45, tgCount: 2, tgCircuitMin: 6 });
+        expect(s.tgFuel).toBeCloseTo(3.2);
+        expect(s.expectedBurn).toBeCloseTo(5 + 0 + 1 + 3.2); // trip + taxi + climb + tg
+    });
+
+    it('zero T&Gs produces no tgFuel', () => {
+        const s = computeFuelSummary({ tripFuel: 5, taxiFuel: 0, climbFuel: 1, fuelGph: 6, reserveMin: 45, tgCount: 0 });
+        expect(s.tgFuel).toBe(0);
+    });
+
 
     it('alternateFuel is included in total', () => {
         const s = computeFuelSummary({ tripFuel: 10, taxiFuel: 0, climbFuel: 0, fuelGph: 6, reserveMin: 45, alternateFuel: 3 });

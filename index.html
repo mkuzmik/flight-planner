@@ -114,6 +114,14 @@
                 <input type="number" id="climbFuel" placeholder="e.g. 2.0" min="0" step="0.1" value="0">
             </div>
             <div>
+                <label>T&amp;G Count</label>
+                <input type="number" id="tgCount" placeholder="0" min="0" step="1" value="0">
+            </div>
+            <div>
+                <label>Circuit Time <small>(min/circuit)</small></label>
+                <input type="number" id="tgCircuitMin" placeholder="6" min="1" step="1" value="6">
+            </div>
+            <div>
                 <label>Fuel Reserve</label>
                 <select id="reserveMin" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
                     <option value="45" selected>45 min (VFR day)</option>
@@ -197,23 +205,27 @@ async function dryRun() {
     document.getElementById('climbFuel').value     = 2.0;
     document.getElementById('reserveMin').value    = 45;
     document.getElementById('alternateIcao').value = 'EPNC';
+    document.getElementById('tgCount').value       = 3;
+    document.getElementById('tgCircuitMin').value  = 6;
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC');
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 async function calculate() {
-    const file         = document.getElementById('gpxFile').files[0];
-    const windDir      = parseFloat(document.getElementById('windDir').value);
-    const windSpeed    = parseFloat(document.getElementById('windSpeed').value);
-    const tas          = parseFloat(document.getElementById('tas').value);
-    const fuelGph      = parseFloat(document.getElementById('fuelGph').value);
-    const taxiFuel     = parseFloat(document.getElementById('taxiFuel').value)  || 0;
-    const climbFuel    = parseFloat(document.getElementById('climbFuel').value) || 0;
-    const reserveMin   = parseFloat(document.getElementById('reserveMin').value);
+    const file          = document.getElementById('gpxFile').files[0];
+    const windDir       = parseFloat(document.getElementById('windDir').value);
+    const windSpeed     = parseFloat(document.getElementById('windSpeed').value);
+    const tas           = parseFloat(document.getElementById('tas').value);
+    const fuelGph       = parseFloat(document.getElementById('fuelGph').value);
+    const taxiFuel      = parseFloat(document.getElementById('taxiFuel').value)  || 0;
+    const climbFuel     = parseFloat(document.getElementById('climbFuel').value) || 0;
+    const reserveMin    = parseFloat(document.getElementById('reserveMin').value);
     const alternateIcao = document.getElementById('alternateIcao').value.trim();
+    const tgCount       = parseInt(document.getElementById('tgCount').value)      || 0;
+    const tgCircuitMin  = parseFloat(document.getElementById('tgCircuitMin').value) || 6;
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
@@ -221,11 +233,11 @@ async function calculate() {
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin);
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '') {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6) {
     const btn = document.getElementById('calcBtn');
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
@@ -273,7 +285,7 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
         }
 
         renderResults(computeLegs(points, windDir, windSpeed, tas, fuelGph, declination),
-                      declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo);
+                      declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo, tgCount, tgCircuitMin);
     } catch (e) {
         err(e.message);
     } finally {
@@ -293,7 +305,7 @@ function err(msg) {
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo = null) {
+function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo = null, tgCount = 0, tgCircuitMin = 6) {
     const infoParts = [
         `Wind: <b>${windDir}°/${windSpeed}kt</b>`,
         `TAS: <b>${tas}kt</b>`,
@@ -345,7 +357,7 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
 
     // Fuel summary
     const alternateFuel = altInfo?.fuel ?? 0;
-    const s = computeFuelSummary({ tripFuel: totFuel, taxiFuel, climbFuel, fuelGph, reserveMin, alternateFuel });
+    const s = computeFuelSummary({ tripFuel: totFuel, taxiFuel, climbFuel, fuelGph, reserveMin, alternateFuel, tgCount, tgCircuitMin });
     const warnings = [];
     if (hasInvalid) warnings.push('⚠ Some legs are invalid — trip fuel may be incomplete.');
     if (altInfo?.warning) warnings.push(`⚠ ${altInfo.warning}`);
@@ -370,6 +382,7 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         row('Trip fuel',    r2(s.tripFuel)) +
         row('Taxi / runup', r2(s.taxiFuel)) +
         row('Climb fuel',   r2(s.climbFuel), 'departure') +
+        (s.tgCount > 0 ? row(`T&amp;G ×${s.tgCount}`, r2(s.tgFuel), `${s.tgCount} × (${s.tgCircuitMin} min circuit + climb)`) : '') +
         subtotal('Expected burn', r2(s.expectedBurn), r1(s.expectedBurn * 3.78541)) +
         row('Go-around',    r2(s.climbFuel), 'destination go-around') +
         altRow +
