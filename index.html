@@ -105,7 +105,7 @@
 </div>
 
 <script type="module">
-import { parseGpx, computeLegs, fmtTime, r1, r2 } from './js/planner.js';
+import { parseGpx, computeLegs, fmtTime, r0, r1, r2 } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', calculate);
@@ -200,11 +200,11 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph) {
         html += `<tr${ok ? '' : ' class="row-invalid"'}>
             <td>${leg.from}</td>
             <td>${leg.to}</td>
-            <td>${r1(leg.tc)}°</td>
-            <td>${r1(leg.negDecl)}°</td>
-            <td>${r1(leg.mc)}°</td>
-            <td>${r1(leg.wca)}°</td>
-            <td>${ok ? r1(leg.mh) + '°' : '—'}</td>
+            <td>${r0(leg.tc)}°</td>
+            <td>${r0(leg.negDecl)}°</td>
+            <td>${r0(leg.mc)}°</td>
+            <td>${r0(leg.wca)}°</td>
+            <td>${ok ? r0(leg.mh) + '°' : '—'}</td>
             <td>${r1(leg.dist)}</td>
             <td>${ok ? r1(leg.gs) : '—'}</td>
             <td>${ok ? fmtTime(leg.eteH) : '—'}</td>

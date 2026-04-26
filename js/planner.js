@@ -87,5 +87,6 @@ export function fmtTime(h) {
     return hh > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${mm}m`;
 }
 
+export const r0 = v => String(Math.round(v));
 export const r1 = v => (Math.round(v * 10) / 10).toFixed(1);
 export const r2 = v => (Math.round(v * 100) / 100).toFixed(2);

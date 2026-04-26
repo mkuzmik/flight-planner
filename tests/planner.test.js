@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     parseGpx, trueCourse, distanceNm,
     computeWca, computeGs, computeLegs,
-    fmtTime, r1, r2,
+    fmtTime, r0, r1, r2,
 } from '../js/planner.js';
 
 // ── GPX fixtures ──────────────────────────────────────────────────────────────
@@ -262,8 +262,13 @@ describe('fmtTime', () => {
     it('NaN → "—"', () => expect(fmtTime(NaN)).toBe('—'));
 });
 
-// ── r1 / r2 ───────────────────────────────────────────────────────────────────
-describe('r1 / r2', () => {
+// ── r0 / r1 / r2 ─────────────────────────────────────────────────────────────
+describe('r0 / r1 / r2', () => {
+    it('r0 rounds to nearest integer as string', () => {
+        expect(r0(90.4)).toBe('90');
+        expect(r0(90.5)).toBe('91');
+        expect(r0(270)).toBe('270');
+    });
     it('r1 rounds to 1 decimal place as string', () => {
         expect(r1(1.05)).toBe('1.1');
         expect(r1(270)).toBe('270.0');
