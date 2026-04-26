@@ -359,7 +359,8 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         altRow +
         row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +
         `<tr style="border-top:2px solid #1e3a5f"><td style="padding:0.4rem 0.5rem;font-weight:700">Total required</td>` +
-        `<td style="padding:0.4rem 0.5rem;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r2(s.total)} gal</td><td></td></tr>` +
+        `<td style="padding:0.4rem 0.5rem;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r2(s.total)} gal</td>` +
+        `<td style="padding:0.4rem 0.5rem;font-weight:700;color:#1e3a5f">${r1(s.total * 3.78541)} L</td></tr>` +
         `</tbody></table>`;
 
     document.getElementById('results').style.display = 'block';
