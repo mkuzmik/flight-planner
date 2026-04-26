@@ -120,8 +120,9 @@ document.getElementById('calcBtn').addEventListener('click', calculate);
 document.getElementById('printBtn').addEventListener('click', () => window.print());
 
 // ── Magnetic declination — NOAA geomag API (single call for route centroid) ───
-async function fetchDeclination(lat, lon, date) {
-    const y = date.getUTCFullYear(), m = date.getUTCMonth() + 1, d = date.getUTCDate();
+async function fetchDeclination(lat, lon) {
+    const now = new Date();
+    const y = now.getUTCFullYear(), m = now.getUTCMonth() + 1, d = now.getUTCDate();
     const url = 'https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination'
               + `?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`
               + `&key=zNEw7&resultFormat=json`
@@ -156,7 +157,6 @@ async function calculate() {
 
     try {
         const points = parseGpx(await file.text());
-        const today  = new Date();
 
         let declination;
         if (declInput !== '') {
@@ -168,7 +168,7 @@ async function calculate() {
             const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
             const cLon = points.reduce((s, p) => s + p.lon, 0) / points.length;
             try {
-                declination = await fetchDeclination(cLat, cLon, today);
+                declination = await fetchDeclination(cLat, cLon);
                 setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
             } catch (e) {
                 return err('Could not fetch declination from NOAA (' + e.message +
