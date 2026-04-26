@@ -87,8 +87,8 @@ export function fmtTime(h) {
     const mm = Math.floor((totalSec % 3600) / 60);
     const ss = totalSec % 60;
     if (hh > 0)
-        return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-    return `${mm}:${String(ss).padStart(2, '0')}`;
+        return `${hh}h${String(mm).padStart(2, '0')}m${String(ss).padStart(2, '0')}s`;
+    return `${mm}m${String(ss).padStart(2, '0')}s`;
 }
 
 export const r0 = v => String(Math.round(v));
