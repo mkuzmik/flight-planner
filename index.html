@@ -356,6 +356,11 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         `<tr><td style="padding:0.3rem 0.5rem;color:#555">${label}</td>` +
         `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums">${value} gal</td>` +
         `<td style="padding:0.3rem 0.5rem;font-size:0.78rem;color:#94a3b8">${note}</td></tr>`;
+    const subtotal = (label, value) =>
+        `<tr style="border-top:1px solid #e5e7eb;background:#f8fafc">` +
+        `<td style="padding:0.3rem 0.5rem;font-weight:600;color:#1e3a5f">${label}</td>` +
+        `<td style="padding:0.3rem 0.5rem;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${value} gal</td>` +
+        `<td></td></tr>`;
     const altRow = altInfo && !altInfo.warning
         ? row(`Alternate ${altInfo.label}`, r2(s.alternateFuel),
               `${r1(altInfo.nm)} NM · ${fmtTime(altInfo.ete)} · incl. go-around`)
@@ -366,7 +371,9 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         `<table style="border-collapse:collapse;font-size:0.88rem"><tbody>` +
         row('Trip fuel',    r2(s.tripFuel)) +
         row('Taxi / runup', r2(s.taxiFuel)) +
-        row('Climb fuel',   r2(s.climbTotal), `${r2(s.climbFuel)} gal × 2 (departure + dest. go-around)`) +
+        row('Climb fuel',   r2(s.climbFuel), 'departure') +
+        subtotal('Expected burn', r2(s.expectedBurn)) +
+        row('Go-around',    r2(s.climbFuel), 'destination go-around') +
         altRow +
         row('Holding (10 min)', r2(s.holdingFuel)) +
         row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +

@@ -271,6 +271,7 @@ describe('computeFuelSummary', () => {
         expect(s.tripFuel).toBeCloseTo(10);
         expect(s.taxiFuel).toBeCloseTo(1.5);
         expect(s.climbTotal).toBeCloseTo(4);      // 2 × 2
+        expect(s.expectedBurn).toBeCloseTo(13.5); // trip(10) + taxi(1.5) + climb(2)
         expect(s.holdingFuel).toBeCloseTo(1);     // 6 × 10/60
         expect(s.reserveFuel).toBeCloseTo(4.5);   // 6 × 45/60
         expect(s.total).toBeCloseTo(21);          // 10 + 1.5 + 4 + 1 + 4.5

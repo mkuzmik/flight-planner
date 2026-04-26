@@ -105,8 +105,9 @@ export function computeFuelSummary({ tripFuel, taxiFuel, climbFuel, fuelGph, res
     const resMins   = safe(reserveMin);
     const altFuel   = safe(alternateFuel);
     const climbTotal   = climb * 2;
+    const expectedBurn = trip + taxi + climb;  // taxi + one climb + trip, no contingencies
     const holdingFuel  = gph * 10 / 60;
     const reserveFuel  = gph * resMins / 60;
     const total        = trip + taxi + climbTotal + holdingFuel + reserveFuel + altFuel;
-    return { tripFuel: trip, taxiFuel: taxi, climbFuel: climb, climbTotal, holdingFuel, reserveFuel, reserveMin: resMins, alternateFuel: altFuel, total };
+    return { tripFuel: trip, taxiFuel: taxi, climbFuel: climb, climbTotal, expectedBurn, holdingFuel, reserveFuel, reserveMin: resMins, alternateFuel: altFuel, total };
 }
