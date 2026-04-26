@@ -294,6 +294,22 @@ describe('computeFuelSummary', () => {
         expect(s.reserveFuel).toBeCloseTo(4.5);
     });
 
+    it('alternateFuel is included in total', () => {
+        const s = computeFuelSummary({ tripFuel: 10, taxiFuel: 0, climbFuel: 0, fuelGph: 6, reserveMin: 45, alternateFuel: 3 });
+        expect(s.alternateFuel).toBeCloseTo(3);
+        expect(s.total).toBeCloseTo(3 + 10 + 4.5); // alt + trip + reserve
+    });
+
+    it('alternateFuel defaults to 0 when omitted', () => {
+        const s = computeFuelSummary({ tripFuel: 5, taxiFuel: 0, climbFuel: 0, fuelGph: 4, reserveMin: 45 });
+        expect(s.alternateFuel).toBe(0);
+    });
+
+    it('NaN alternateFuel defaults to 0', () => {
+        const s = computeFuelSummary({ tripFuel: 5, taxiFuel: 0, climbFuel: 0, fuelGph: 4, reserveMin: 45, alternateFuel: NaN });
+        expect(s.alternateFuel).toBe(0);
+    });
+
     it('zero climb and taxi fuel produce correct total', () => {
         const s = computeFuelSummary({ tripFuel: 8, taxiFuel: 0, climbFuel: 0, fuelGph: 4, reserveMin: 45 });
         expect(s.total).toBeCloseTo(11); // 8 + 0 + 0 + 3

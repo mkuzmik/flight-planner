@@ -116,6 +116,11 @@
                     <option value="60">60 min (extended)</option>
                 </select>
             </div>
+            <div>
+                <label>Alternate Airport <small>(ICAO, optional)</small></label>
+                <input type="text" id="alternateIcao" placeholder="e.g. EPMO" maxlength="4"
+                       style="text-transform:uppercase">
+            </div>
         </div>
         <div class="btn-row">
             <button class="btn-primary" id="calcBtn">Calculate Plan</button>
@@ -159,31 +164,52 @@ async function fetchDeclination(lat, lon) {
     return json.result[0].declination; // degrees, East-positive
 }
 
-// ── Dry run — loads example GPX with preset values ───────────────────────────
+// ── Alternate airport — OpenStreetMap Overpass API ───────────────────────────
+async function fetchAirportCoords(icao) {
+    const code = icao.trim().toUpperCase();
+    if (!/^[A-Z]{4}$/.test(code)) throw new Error(`Invalid ICAO code: "${icao}"`);
+    const query = `[out:json];(node["icao"="${code}"];way["icao"="${code}"];relation["icao"="${code}"];);out center;`;
+    const url   = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+    const resp  = await fetch(url);
+    if (!resp.ok) throw new Error(`Overpass API returned ${resp.status}`);
+    const json  = await resp.json();
+    // Prefer way/relation (has .center), fall back to node (has .lat/.lon directly)
+    const el = json.elements.find(e => e.center?.lat != null)
+            ?? json.elements.find(e => e.lat != null);
+    if (!el) throw new Error(`Airport ${code} not found in OpenStreetMap`);
+    const lat  = el.center?.lat ?? el.lat;
+    const lon  = el.center?.lon ?? el.lon;
+    const name = el.tags?.name ?? code;
+    return { lat, lon, name, icao: code };
+}
+
+
 async function dryRun() {
-    document.getElementById('windDir').value   = 270;
-    document.getElementById('windSpeed').value = 15;
-    document.getElementById('tas').value       = 100;
-    document.getElementById('fuelGph').value   = 6.5;
-    document.getElementById('taxiFuel').value  = 1.5;
-    document.getElementById('climbFuel').value = 2.0;
-    document.getElementById('reserveMin').value = 45;
+    document.getElementById('windDir').value       = 270;
+    document.getElementById('windSpeed').value     = 15;
+    document.getElementById('tas').value           = 100;
+    document.getElementById('fuelGph').value       = 6.5;
+    document.getElementById('taxiFuel').value      = 1.5;
+    document.getElementById('climbFuel').value     = 2.0;
+    document.getElementById('reserveMin').value    = 45;
+    document.getElementById('alternateIcao').value = 'EPNC';
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45);
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC');
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 async function calculate() {
-    const file       = document.getElementById('gpxFile').files[0];
-    const windDir    = parseFloat(document.getElementById('windDir').value);
-    const windSpeed  = parseFloat(document.getElementById('windSpeed').value);
-    const tas        = parseFloat(document.getElementById('tas').value);
-    const fuelGph    = parseFloat(document.getElementById('fuelGph').value);
-    const taxiFuel   = parseFloat(document.getElementById('taxiFuel').value)  || 0;
-    const climbFuel  = parseFloat(document.getElementById('climbFuel').value) || 0;
-    const reserveMin = parseFloat(document.getElementById('reserveMin').value);
+    const file         = document.getElementById('gpxFile').files[0];
+    const windDir      = parseFloat(document.getElementById('windDir').value);
+    const windSpeed    = parseFloat(document.getElementById('windSpeed').value);
+    const tas          = parseFloat(document.getElementById('tas').value);
+    const fuelGph      = parseFloat(document.getElementById('fuelGph').value);
+    const taxiFuel     = parseFloat(document.getElementById('taxiFuel').value)  || 0;
+    const climbFuel    = parseFloat(document.getElementById('climbFuel').value) || 0;
+    const reserveMin   = parseFloat(document.getElementById('reserveMin').value);
+    const alternateIcao = document.getElementById('alternateIcao').value.trim();
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
@@ -191,11 +217,11 @@ async function calculate() {
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao);
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45) {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '') {
     const btn = document.getElementById('calcBtn');
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
@@ -216,8 +242,34 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
             return err('Could not fetch declination from NOAA (' + e.message + ').');
         }
 
+        // Alternate airport — isolated so failures don't abort main plan
+        let altInfo = null; // { fuel, label, warning }
+        const icaoCode = alternateIcao.trim().toUpperCase();
+        if (icaoCode) {
+            setStatus(`Looking up alternate ${icaoCode}…`);
+            try {
+                const airport = await fetchAirportCoords(icaoCode);
+                const lastPt  = points[points.length - 1];
+                const [altLeg] = computeLegs([lastPt, { ...airport, ele: 0 }],
+                                              windDir, windSpeed, tas, fuelGph, declination);
+                if (!isFinite(altLeg.gs) || altLeg.gs <= 0) {
+                    altInfo = { fuel: 0, label: `${icaoCode} – ${airport.name}`,
+                                warning: `Alternate leg to ${icaoCode} has invalid ground speed — fuel not included.` };
+                } else {
+                    const fuel = altLeg.fuel + climbFuel; // leg + go-around at alternate
+                    altInfo = { fuel, label: `${icaoCode} – ${airport.name}`,
+                                nm: altLeg.dist, ete: altLeg.eteH };
+                }
+                setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+            } catch (e) {
+                altInfo = { fuel: 0, label: icaoCode,
+                            warning: `Could not look up alternate ${icaoCode}: ${e.message}` };
+                setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+            }
+        }
+
         renderResults(computeLegs(points, windDir, windSpeed, tas, fuelGph, declination),
-                      declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin);
+                      declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo);
     } catch (e) {
         err(e.message);
     } finally {
@@ -237,7 +289,7 @@ function err(msg) {
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin) {
+function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo = null) {
     const infoParts = [
         `Wind: <b>${windDir}°/${windSpeed}kt</b>`,
         `TAS: <b>${tas}kt</b>`,
@@ -283,19 +335,28 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
     document.getElementById('planTable').innerHTML = html;
 
     // Fuel summary
-    const s = computeFuelSummary({ tripFuel: totFuel, taxiFuel, climbFuel, fuelGph, reserveMin });
-    const warn = hasInvalid ? '<p style="color:#dc2626;font-size:0.82rem;margin-bottom:0.5rem">⚠ Some legs are invalid — trip fuel may be incomplete.</p>' : '';
+    const alternateFuel = altInfo?.fuel ?? 0;
+    const s = computeFuelSummary({ tripFuel: totFuel, taxiFuel, climbFuel, fuelGph, reserveMin, alternateFuel });
+    const warnings = [];
+    if (hasInvalid) warnings.push('⚠ Some legs are invalid — trip fuel may be incomplete.');
+    if (altInfo?.warning) warnings.push(`⚠ ${altInfo.warning}`);
+    const warnHtml = warnings.map(w => `<p style="color:#dc2626;font-size:0.82rem;margin-bottom:0.4rem">${w}</p>`).join('');
     const row = (label, value, note = '') =>
         `<tr><td style="padding:0.3rem 0.5rem;color:#555">${label}</td>` +
         `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums">${value} gal</td>` +
         `<td style="padding:0.3rem 0.5rem;font-size:0.78rem;color:#94a3b8">${note}</td></tr>`;
+    const altRow = altInfo && !altInfo.warning
+        ? row(`Alternate ${altInfo.label}`, r2(s.alternateFuel),
+              `${r1(altInfo.nm)} NM · ${fmtTime(altInfo.ete)} · incl. go-around`)
+        : '';
     document.getElementById('fuelSummary').innerHTML =
         `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Fuel Summary</h3>` +
-        warn +
+        warnHtml +
         `<table style="border-collapse:collapse;font-size:0.88rem"><tbody>` +
-        row('Trip fuel',   r2(s.tripFuel)) +
+        row('Trip fuel',    r2(s.tripFuel)) +
         row('Taxi / runup', r2(s.taxiFuel)) +
-        row('Climb fuel', r2(s.climbTotal), `${r2(s.climbFuel)} gal × 2 (go-around)`) +
+        row('Climb fuel',   r2(s.climbTotal), `${r2(s.climbFuel)} gal × 2 (departure + dest. go-around)`) +
+        altRow +
         row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +
         `<tr style="border-top:2px solid #1e3a5f"><td style="padding:0.4rem 0.5rem;font-weight:700">Total required</td>` +
         `<td style="padding:0.4rem 0.5rem;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r2(s.total)} gal</td><td></td></tr>` +
