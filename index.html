@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Planner</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               background: #f0f4f8; color: #1a1a2e; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        h1 { font-size: 1.8rem; margin-bottom: 1.5rem; color: #1e3a5f; }
+
+        .card { background: white; border-radius: 12px; padding: 1.5rem;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1.5rem; }
+
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+        label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
+        label small { font-weight: 400; }
+
+        input[type=text], input[type=number], input[type=date], input[type=file] {
+            width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid #dde1e8; border-radius: 8px;
+            font-size: 0.93rem; transition: border-color 0.2s; background: #fafbfc;
+        }
+        input:focus { outline: none; border-color: #3b82f6; background: white; }
+
+        .btn-row { margin-top: 1.25rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+        button { border: none; border-radius: 8px; padding: 0.6rem 1.4rem; font-size: 0.95rem;
+                 cursor: pointer; font-weight: 600; transition: background 0.15s; }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+        .btn-secondary { background: #e2e8f0; color: #374151; }
+        .btn-secondary:hover { background: #cbd5e1; }
+
+        #status { min-height: 1.4rem; margin-bottom: 0.5rem; font-size: 0.88rem; color: #64748b; }
+        #status.error { color: #dc2626; }
+
+        .info-bar { font-size: 0.83rem; color: #555; display: flex; flex-wrap: wrap; gap: 0.4rem 1.5rem; }
+        .info-bar b { color: #1e3a5f; }
+
+        table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+        thead th { background: #1e3a5f; color: white; padding: 0.55rem 0.75rem;
+                   white-space: nowrap; text-align: right; }
+        thead th:first-child, thead th:nth-child(2) { text-align: left; }
+        tbody td { padding: 0.42rem 0.75rem; border-bottom: 1px solid #e5e7eb; text-align: right; }
+        tbody td:first-child, tbody td:nth-child(2) { text-align: left; }
+        tbody tr:hover td { background: #eff6ff; }
+        tbody tr:nth-child(even) td { background: #f8fafc; }
+        tbody tr:nth-child(even):hover td { background: #eff6ff; }
+        .row-invalid td { color: #dc2626; }
+        .totals-row td { font-weight: 700; background: #1e3a5f !important; color: white !important; }
+
+        @media print {
+            body { background: white; }
+            .card:first-child { display: none; }
+            #status { display: none; }
+            .btn-row { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>✈ Flight Planner</h1>
+
+    <div class="card">
+        <div class="form-grid">
+            <div>
+                <label>GPX File</label>
+                <input type="file" id="gpxFile" accept=".gpx">
+            </div>
+            <div>
+                <label>Wind Direction <small>(°mag)</small></label>
+                <input type="number" id="windDir" placeholder="e.g. 270" min="0" max="360" step="1">
+            </div>
+            <div>
+                <label>Wind Speed <small>(kt)</small></label>
+                <input type="number" id="windSpeed" placeholder="e.g. 15" min="0" step="1" value="0">
+            </div>
+            <div>
+                <label>TAS <small>(kt)</small></label>
+                <input type="number" id="tas" placeholder="e.g. 100" min="1" step="1">
+            </div>
+            <div>
+                <label>Fuel Consumption <small>(gal/h)</small></label>
+                <input type="number" id="fuelGph" placeholder="e.g. 6.5" min="0.1" step="0.1">
+            </div>
+            <div>
+                <label>Date</label>
+                <input type="date" id="flightDate">
+            </div>
+            <div>
+                <label>Mag. Declination <small>(° — blank = auto)</small></label>
+                <input type="number" id="declOverride" placeholder="auto via NOAA" step="0.1">
+            </div>
+            <div>
+                <label>Aircraft Type <small>(optional)</small></label>
+                <input type="text" id="acType" placeholder="e.g. C172">
+            </div>
+            <div>
+                <label>Registration <small>(optional)</small></label>
+                <input type="text" id="acReg" placeholder="e.g. SP-ABC">
+            </div>
+            <div>
+                <label>Departure Time <small>(optional)</small></label>
+                <input type="text" id="depTime" placeholder="e.g. 14:00 UTC">
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn-primary" id="calcBtn" onclick="calculate()">Calculate Plan</button>
+            <button class="btn-secondary" onclick="window.print()">🖨 Print</button>
+        </div>
+    </div>
+
+    <div id="status"></div>
+
+    <div id="results" style="display:none">
+        <div class="card" style="padding: 0.9rem 1.5rem; margin-bottom: 1rem;">
+            <div class="info-bar" id="infoBar"></div>
+        </div>
+        <div class="card" style="overflow-x: auto; padding: 0;">
+            <table id="planTable"></table>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Defaults ──────────────────────────────────────────────────────────────────
+document.getElementById('flightDate').valueAsDate = new Date();
+
+// ── GPX Parser ────────────────────────────────────────────────────────────────
+function parseGpx(xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.querySelector('parsererror'))
+        throw new Error('Invalid GPX file — XML parse error.');
+
+    // Namespace-agnostic: match on localName only
+    const byTag = (parent, name) =>
+        [...parent.querySelectorAll('*')].filter(el => el.localName === name);
+
+    const ptToObj = (el, idx) => ({
+        name: byTag(el, 'name')[0]?.textContent?.trim() ||
+              `PT${String(idx + 1).padStart(3, '0')}`,
+        lat:  parseFloat(el.getAttribute('lat')),
+        lon:  parseFloat(el.getAttribute('lon')),
+        ele:  parseFloat(byTag(el, 'ele')[0]?.textContent ?? '0'),
+    });
+
+    // Route takes priority
+    const rtepts = byTag(doc, 'rtept');
+    if (rtepts.length >= 2)
+        return rtepts.map(ptToObj);
+
+    // Fall back to first track, first segment
+    const trk = byTag(doc, 'trk')[0];
+    if (!trk) throw new Error('No <rte> or <trk> found in GPX.');
+    const seg = byTag(trk, 'trkseg')[0];
+    if (!seg) throw new Error('No <trkseg> found in GPX track.');
+    const pts = byTag(seg, 'trkpt').map(ptToObj);
+    if (pts.length < 2) throw new Error('Need at least 2 track points.');
+    return pts;
+}
+
+// ── Geodesic math ─────────────────────────────────────────────────────────────
+const R_NM  = 3440.065;
+const toRad = d => d * Math.PI / 180;
+const toDeg = r => r * 180 / Math.PI;
+
+function trueCourse(lat1, lon1, lat2, lon2) {
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2))
+            - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function distanceNm(lat1, lon1, lat2, lon2) {
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── Magnetic declination — NOAA geomag API (single call for route centroid) ───
+async function fetchDeclination(lat, lon, date) {
+    const y = date.getUTCFullYear(), m = date.getUTCMonth() + 1, d = date.getUTCDate();
+    const url = 'https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination'
+              + `?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`
+              + `&key=zNEw7&resultFormat=json`
+              + `&startYear=${y}&startMonth=${m}&startDay=${d}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`NOAA API returned ${resp.status}`);
+    const json = await resp.json();
+    return json.result[0].declination; // degrees, East-positive
+}
+
+// ── Wind math — identical formulas to flight_planner.py ──────────────────────
+function computeWca(windDir, windSpeed, mc, tas) {
+    const angle = toRad(windDir - 180 - mc);
+    return -(windSpeed * 60 * Math.sin(angle)) / tas;
+}
+
+function computeGs(windDir, windSpeed, mc, tas, wcaDeg) {
+    const angle = toRad(windDir - 180 - mc);
+    return tas * Math.cos(toRad(wcaDeg)) + windSpeed * Math.cos(angle);
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+function fmtTime(h) {
+    if (!isFinite(h) || h <= 0) return '—';
+    const mins = Math.round(h * 60);
+    const hh = Math.floor(mins / 60), mm = mins % 60;
+    return hh > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${mm}m`;
+}
+
+const r1 = v => (Math.round(v * 10) / 10).toFixed(1);
+const r2 = v => (Math.round(v * 100) / 100).toFixed(2);
+
+// ── Main entry point ──────────────────────────────────────────────────────────
+async function calculate() {
+    const btn    = document.getElementById('calcBtn');
+    const status = document.getElementById('status');
+
+    document.getElementById('results').style.display = 'none';
+    status.className = '';
+
+    const file      = document.getElementById('gpxFile').files[0];
+    const windDir   = parseFloat(document.getElementById('windDir').value);
+    const windSpeed = parseFloat(document.getElementById('windSpeed').value);
+    const tas       = parseFloat(document.getElementById('tas').value);
+    const fuelGph   = parseFloat(document.getElementById('fuelGph').value);
+    const dateStr   = document.getElementById('flightDate').value;
+    const declInput = document.getElementById('declOverride').value.trim();
+
+    if (!file)                                   return err('Please select a GPX file.');
+    if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
+    if (isNaN(windSpeed) || windSpeed < 0)       return err('Wind speed must be ≥ 0.');
+    if (isNaN(tas) || tas <= 0)                  return err('TAS must be > 0.');
+    if (isNaN(fuelGph) || fuelGph <= 0)          return err('Fuel consumption must be > 0.');
+    if (!dateStr)                                return err('Please select a date.');
+
+    btn.disabled = true;
+    setStatus('Parsing GPX…');
+
+    try {
+        const points = parseGpx(await file.text());
+        const flightDate = new Date(dateStr + 'T12:00:00Z');
+
+        // Magnetic declination
+        let declination;
+        if (declInput !== '') {
+            declination = parseFloat(declInput);
+            if (isNaN(declination)) return err('Invalid declination value.');
+            setStatus(`Using manual declination: ${declination.toFixed(1)}°`);
+        } else {
+            setStatus('Fetching magnetic declination from NOAA…');
+            const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+            const cLon = points.reduce((s, p) => s + p.lon, 0) / points.length;
+            try {
+                declination = await fetchDeclination(cLat, cLon, flightDate);
+                setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+            } catch (e) {
+                return err('Could not fetch declination from NOAA (' + e.message +
+                    '). Enter it manually in the "Mag. Declination" field.');
+            }
+        }
+
+        // Compute legs (full precision internally)
+        const negDecl = -declination;
+        const legs = [];
+        for (let i = 1; i < points.length; i++) {
+            const p1 = points[i - 1], p2 = points[i];
+            const tc   = trueCourse(p1.lat, p1.lon, p2.lat, p2.lon);
+            const dist = distanceNm(p1.lat, p1.lon, p2.lat, p2.lon);
+            const mc   = ((tc + negDecl) % 360 + 360) % 360;
+            const wca  = computeWca(windDir, windSpeed, mc, tas);
+            const mh   = ((mc + wca)  % 360 + 360) % 360;
+            const gs   = computeGs(windDir, windSpeed, mc, tas, wca);
+            const eteH = gs > 0 ? dist / gs : NaN;
+            const fuel = isFinite(eteH) ? eteH * fuelGph : NaN;
+            legs.push({ from: p1.name, to: p2.name, tc, negDecl, mc, wca, mh, dist, gs, eteH, fuel });
+        }
+
+        renderResults(legs, declination, windDir, windSpeed, tas, fuelGph, dateStr);
+    } catch (e) {
+        err(e.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function setStatus(msg, isErr = false) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = isErr ? 'error' : '';
+}
+
+function err(msg) {
+    setStatus(msg, true);
+    document.getElementById('calcBtn').disabled = false;
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
+function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, dateStr) {
+    const val = id => document.getElementById(id).value;
+    const infoParts = [
+        val('acType')  && `Aircraft: <b>${val('acType')}</b>`,
+        val('acReg')   && `Reg: <b>${val('acReg')}</b>`,
+        val('depTime') && `ETD: <b>${val('depTime')}</b>`,
+        `Date: <b>${dateStr}</b>`,
+        `Wind: <b>${windDir}°/${windSpeed}kt</b>`,
+        `TAS: <b>${tas}kt</b>`,
+        `Fuel: <b>${fuelGph} gal/h</b>`,
+        `Declination: <b>${decl.toFixed(2)}°</b>`,
+    ].filter(Boolean).join(' &thinsp;·&thinsp; ');
+    document.getElementById('infoBar').innerHTML = infoParts;
+
+    const cols = ['FROM', 'TO', 'TC', '(-)DECL', 'MC', 'WCA', 'MH', 'NM', 'GS (kt)', 'ETE', 'Fuel (gal)'];
+    let html = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+
+    let totDist = 0, totFuel = 0, totTime = 0;
+
+    for (const leg of legs) {
+        const ok = isFinite(leg.gs) && leg.gs > 0;
+        html += `<tr${ok ? '' : ' class="row-invalid"'}>
+            <td>${leg.from}</td>
+            <td>${leg.to}</td>
+            <td>${r1(leg.tc)}°</td>
+            <td>${r1(leg.negDecl)}°</td>
+            <td>${r1(leg.mc)}°</td>
+            <td>${r1(leg.wca)}°</td>
+            <td>${ok ? r1(leg.mh) + '°' : '—'}</td>
+            <td>${r1(leg.dist)}</td>
+            <td>${ok ? r1(leg.gs) : '—'}</td>
+            <td>${ok ? fmtTime(leg.eteH) : '—'}</td>
+            <td>${ok && isFinite(leg.fuel) ? r2(leg.fuel) : '—'}</td>
+        </tr>`;
+        totDist += leg.dist;
+        if (ok) { totFuel += leg.fuel; totTime += leg.eteH; }
+    }
+
+    html += `<tr class="totals-row">
+        <td colspan="7">TOTAL</td>
+        <td>${r1(totDist)}</td>
+        <td>—</td>
+        <td>${fmtTime(totTime)}</td>
+        <td>${r2(totFuel)}</td>
+    </tr></tbody>`;
+
+    document.getElementById('planTable').innerHTML = html;
+    document.getElementById('results').style.display = 'block';
+}
+</script>
+</body>
+</html>
