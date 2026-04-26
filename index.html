@@ -65,6 +65,7 @@
             .card { padding: 0; box-shadow: none; border-radius: 0; margin-bottom: 0.5rem; }
             h1 { font-size: 1.1rem; margin-bottom: 0.4rem; }
             .info-bar { font-size: 0.75rem; margin-bottom: 0.4rem; }
+            #printParams { display: block !important; }
             table { font-size: 0.72rem; width: 100%; table-layout: fixed; }
             thead th { white-space: normal; padding: 0.25rem 0.3rem; }
             tbody td { padding: 0.25rem 0.3rem; }
@@ -78,6 +79,7 @@
 <body>
 <div class="container">
     <h1>✈ Flight Planner</h1>
+    <div id="printParams" style="display:none;font-size:0.8rem;color:#555;margin-bottom:0.6rem;"></div>
 
     <div class="card">
         <div class="form-grid">
@@ -298,7 +300,12 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
     ].join(' &thinsp;·&thinsp; ');
     document.getElementById('infoBar').innerHTML = infoParts;
 
-    const cols = ['FROM', 'TO', 'TC', '(-)DECL', 'MC', 'WCA', 'MH', 'NM', 'GS (kt)', 'ETE', 'Fuel (gal)'];
+    // Print-only compact params line
+    const altLabel = altInfo && !altInfo.warning ? ` · Alternate: ${altInfo.label}` : '';
+    document.getElementById('printParams').innerHTML =
+        `Wind: <b>${windDir}°/${windSpeed}kt</b> · TAS: <b>${tas}kt</b> · Fuel: <b>${fuelGph} gal/h</b>`
+      + ` · Taxi: <b>${taxiFuel} gal</b> · Climb: <b>${climbFuel} gal</b>`
+      + ` · Reserve: <b>${reserveMin} min</b>${altLabel} · Declination: <b>${decl.toFixed(2)}°</b>`;
     let html = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
 
     let totDist = 0, totFuel = 0, totTime = 0;
