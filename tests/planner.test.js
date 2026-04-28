@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
     parseGpx, trueCourse, distanceNm,
     computeWca, computeGs, computeLegs,
-    computeFuelSummary,
+    computeFuelSummary, findNearestVor,
     fmtTime, r0, r1, r2,
 } from '../js/planner.js';
 
@@ -399,6 +399,53 @@ describe('Full pipeline – EPMO → EPNCA → AEPPL → EPMO', () => {
         expect(s.total).toBeGreaterThan(s.expectedBurn);
     });
 });
+
+// ── findNearestVor ────────────────────────────────────────────────────────────
+describe('findNearestVor', () => {
+    // VOR at 52.5°N, 21.0°E, elevation 500ft
+    const VOR_A = { ident: 'WAR', freq: '114.90', lat: 52.5, lon: 21.0, elevFt: 500 };
+    // VOR far away
+    const VOR_B = { ident: 'FAR', freq: '115.00', lat: 55.0, lon: 25.0, elevFt: 0 };
+    const DECL = 7;
+
+    it('returns nearest VOR within LOS range', () => {
+        const result = findNearestVor(52.5, 21.1, [VOR_A, VOR_B], 3500, DECL);
+        expect(result).not.toBeNull();
+        expect(result.ident).toBe('WAR');
+        expect(result.dme).toBeCloseTo(distanceNm(52.5, 21.1, 52.5, 21.0), 3);
+    });
+
+    it('returns null when VOR is out of range', () => {
+        // Waypoint is very far from VOR — 200 NM away, well beyond LOS
+        const result = findNearestVor(54.5, 21.1, [VOR_A], 3500, DECL);
+        expect(result).toBeNull();
+    });
+
+    it('returns null for empty VOR list', () => {
+        expect(findNearestVor(52.5, 21.0, [], 3500, DECL)).toBeNull();
+    });
+
+    it('radial is magnetic bearing FROM VOR TO waypoint', () => {
+        // Waypoint due east of VOR → TC ≈ 90°, radial ≈ 90 - DECL
+        const result = findNearestVor(52.5, 21.5, [VOR_A], 3500, DECL);
+        expect(result).not.toBeNull();
+        const expectedRadial = ((trueCourse(52.5, 21.0, 52.5, 21.5) - DECL) + 360) % 360;
+        expect(result.radial).toBeCloseTo(expectedRadial, 3);
+    });
+
+    it('prefers closer VOR when multiple are in range', () => {
+        const CLOSE = { ident: 'CLO', freq: '112.00', lat: 52.5, lon: 21.05, elevFt: 0 };
+        const result = findNearestVor(52.5, 21.1, [VOR_A, CLOSE], 3500, DECL);
+        expect(result.ident).toBe('CLO');
+    });
+
+    it('VOR with missing elevation treated as 0ft', () => {
+        const vor = { ident: 'NAN', freq: '', lat: 52.5, lon: 21.05, elevFt: NaN };
+        const result = findNearestVor(52.5, 21.1, [vor], 3500, DECL);
+        expect(result).not.toBeNull(); // still found since NaN → 0
+    });
+});
+
 
 describe('r0 / r1 / r2', () => {
     it('r0 rounds to nearest integer as string', () => {

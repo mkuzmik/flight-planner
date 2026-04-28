@@ -95,7 +95,23 @@ export const r0 = v => String(Math.round(v));
 export const r1 = v => (Math.round(v * 10) / 10).toFixed(1);
 export const r2 = v => (Math.round(v * 100) / 100).toFixed(2);
 
-// ── Fuel summary ──────────────────────────────────────────────────────────────
+// ── VOR lookup ────────────────────────────────────────────────────────────────
+export function findNearestVor(lat, lon, vors, cruiseAltFt, declination) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const vor of vors) {
+        const vorElevFt = isFinite(vor.elevFt) && vor.elevFt >= 0 ? vor.elevFt : 0;
+        const losNm = 1.23 * (Math.sqrt(Math.max(0, cruiseAltFt)) + Math.sqrt(vorElevFt));
+        const dme = distanceNm(lat, lon, vor.lat, vor.lon);
+        if (dme <= losNm && dme < bestDist) {
+            bestDist = dme;
+            const tc     = trueCourse(vor.lat, vor.lon, lat, lon);
+            const radial = ((tc - declination) % 360 + 360) % 360;
+            best = { ident: vor.ident, freq: vor.freq, dme, radial };
+        }
+    }
+    return best;
+}
 export function computeFuelSummary({ tripFuel, taxiFuel, climbFuel, fuelGph, reserveMin, alternateFuel = 0, tgCount = 0, tgCircuitMin = 6 }) {
     const safe = v => (isFinite(v) && v >= 0 ? v : 0);
     const trip      = safe(tripFuel);

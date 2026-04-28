@@ -133,6 +133,10 @@
                 </select>
             </div>
             <div>
+                <label>Cruise Altitude <small>(ft MSL)</small></label>
+                <input type="number" id="cruiseAlt" placeholder="e.g. 3500" min="0" step="100">
+            </div>
+            <div>
                 <label>Alternate Airport <small>(ICAO, optional)</small></label>
                 <input type="text" id="alternateIcao" placeholder="e.g. EPMO" maxlength="4"
                        style="text-transform:uppercase">
@@ -155,11 +159,12 @@
             <table id="planTable"></table>
         </div>
         <div class="card" id="fuelSummary" style="margin-top: 1rem;"></div>
+        <div id="vorSummary" style="display:none;margin-top: 1rem;"></div>
     </div>
 </div>
 
 <script type="module">
-import { parseGpx, computeLegs, computeFuelSummary, fmtTime, r0, r1, r2 } from './js/planner.js';
+import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0, r1, r2 } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', calculate);
@@ -200,6 +205,30 @@ async function fetchAirportCoords(icao) {
 }
 
 
+// ── VORs — OpenStreetMap Overpass API ────────────────────────────────────────
+async function fetchVors(points, cruiseAltFt) {
+    const lats = points.map(p => p.lat), lons = points.map(p => p.lon);
+    // Expand bbox by max LOS range (NM→degrees), scaled by latitude for longitude
+    const maxRangeNm = 1.23 * Math.sqrt(Math.max(0, cruiseAltFt));
+    const latPad = maxRangeNm / 60;
+    const avgLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const lonPad = maxRangeNm / (60 * Math.cos(avgLat * Math.PI / 180));
+    const bbox = `${(Math.min(...lats) - latPad).toFixed(4)},${(Math.min(...lons) - lonPad).toFixed(4)},`
+               + `${(Math.max(...lats) + latPad).toFixed(4)},${(Math.max(...lons) + lonPad).toFixed(4)}`;
+    const query = `[out:json][timeout:25];node["aeroway"="navaid"]["navaid:type"~"^(vor|vor_dme|vortac|dvor|dvor_dme)$",i](${bbox});out;`;
+    const resp = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query));
+    if (!resp.ok) throw new Error(`Overpass returned ${resp.status}`);
+    const json = await resp.json();
+    return json.elements.map(el => ({
+        ident:  el.tags?.ref ?? el.tags?.name ?? '???',
+        freq:   el.tags?.['freq'] ?? el.tags?.['frequency'] ?? '',
+        lat:    el.lat,
+        lon:    el.lon,
+        elevFt: parseFloat(el.tags?.ele ?? 'NaN') * 3.28084, // ele is meters in OSM
+    }));
+}
+
+
 async function dryRun() {
     document.getElementById('windDir').value       = 270;
     document.getElementById('windSpeed').value     = 15;
@@ -211,10 +240,11 @@ async function dryRun() {
     document.getElementById('alternateIcao').value = 'EPNC';
     document.getElementById('tgCount').value       = 3;
     document.getElementById('tgCircuitMin').value  = 6;
+    document.getElementById('cruiseAlt').value     = 3500;
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6);
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -230,6 +260,7 @@ async function calculate() {
     const alternateIcao = document.getElementById('alternateIcao').value.trim();
     const tgCount       = parseInt(document.getElementById('tgCount').value)      || 0;
     const tgCircuitMin  = parseFloat(document.getElementById('tgCircuitMin').value) || 6;
+    const cruiseAlt     = parseFloat(document.getElementById('cruiseAlt').value) || 0;
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
@@ -237,11 +268,11 @@ async function calculate() {
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt);
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6) {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0) {
     const btn = document.getElementById('calcBtn');
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
@@ -288,8 +319,24 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
             }
         }
 
-        renderResults(computeLegs(points, windDir, windSpeed, tas, fuelGph, declination),
-                      declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo, tgCount, tgCircuitMin);
+        // VOR lookup — isolated so failures don't abort main plan
+        let vorData = [];
+        if (cruiseAlt > 0) {
+            setStatus('Looking up nearby VORs…');
+            try {
+                vorData = await fetchVors(points, cruiseAlt);
+                setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+            } catch (e) {
+                vorData = [];
+                setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+            }
+        }
+
+        const legs = computeLegs(points, windDir, windSpeed, tas, fuelGph, declination);
+        const pointVors = points.map(p => cruiseAlt > 0
+            ? findNearestVor(p.lat, p.lon, vorData, cruiseAlt, declination)
+            : null);
+        renderResults(legs, points, pointVors, declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo, tgCount, tgCircuitMin, cruiseAlt);
     } catch (e) {
         err(e.message);
     } finally {
@@ -309,7 +356,7 @@ function err(msg) {
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo = null, tgCount = 0, tgCircuitMin = 6) {
+function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo = null, tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0) {
     const infoParts = [
         `Wind: <b>${windDir}°/${windSpeed}kt</b>`,
         `TAS: <b>${tas}kt</b>`,
@@ -396,6 +443,38 @@ function renderResults(legs, decl, windDir, windSpeed, tas, fuelGph, taxiFuel, c
         `<td style="padding:0.4rem 0.5rem;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r2(s.total)} gal</td>` +
         `<td style="padding:0.4rem 0.5rem;font-weight:700;color:#1e3a5f">${r1(s.total * 3.78541)} L</td></tr>` +
         `</tbody></table>`;
+
+    // VOR summary table
+    const vorDiv = document.getElementById('vorSummary');
+    if (cruiseAlt > 0 && pointVors.some(v => v !== null)) {
+        const hasAnyVor = pointVors.some(v => v !== null);
+        let vHtml = `<div class="card"><h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">VOR Navigation</h3>`
+            + `<p style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.6rem">Nearest VOR within radio line-of-sight at ${cruiseAlt.toLocaleString()} ft MSL &mdash; radial is magnetic bearing FROM VOR TO waypoint</p>`
+            + `<table style="border-collapse:collapse;font-size:0.88rem;width:100%"><thead>`
+            + `<tr style="border-bottom:2px solid #e5e7eb">`
+            + `<th style="padding:0.3rem 0.5rem;text-align:left">Waypoint</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:left">VOR</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:left">Freq</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:right">Radial</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:right">DME (NM)</th>`
+            + `</tr></thead><tbody>`;
+        points.forEach((pt, i) => {
+            const v = pointVors[i];
+            vHtml += `<tr style="border-bottom:1px solid #f1f5f9">`
+                + `<td style="padding:0.3rem 0.5rem">${pt.name}</td>`
+                + `<td style="padding:0.3rem 0.5rem;font-weight:600">${v ? v.ident : '—'}</td>`
+                + `<td style="padding:0.3rem 0.5rem;color:#555">${v?.freq || '—'}</td>`
+                + `<td style="padding:0.3rem 0.5rem;text-align:right">${v ? r0(v.radial) + '°' : '—'}</td>`
+                + `<td style="padding:0.3rem 0.5rem;text-align:right">${v ? r1(v.dme) : '—'}</td>`
+                + `</tr>`;
+        });
+        vHtml += `</tbody></table></div>`;
+        vorDiv.innerHTML = vHtml;
+        vorDiv.style.display = 'block';
+    } else {
+        vorDiv.style.display = 'none';
+        vorDiv.innerHTML = '';
+    }
 
     document.getElementById('results').style.display = 'block';
 }
