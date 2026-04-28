@@ -159,7 +159,7 @@
             <table id="planTable"></table>
         </div>
         <div class="card" id="fuelSummary" style="margin-top: 1rem;"></div>
-        <div id="vorSummary" style="display:none;margin-top: 1rem;"></div>
+        <div class="card" id="vorSummary" style="display:none;margin-top: 1rem;"></div>
     </div>
 </div>
 
@@ -482,7 +482,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
     const vorDiv = document.getElementById('vorSummary');
     if (cruiseAlt > 0 && pointVors.some(v => v !== null)) {
         const hasAnyVor = pointVors.some(v => v !== null);
-        let vHtml = `<div class="card"><h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">VOR Navigation</h3>`
+        let vHtml = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">VOR Navigation</h3>`
             + `<p style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.6rem">Nearest VOR within radio line-of-sight at ${cruiseAlt.toLocaleString()} ft MSL &mdash; radial is magnetic bearing FROM VOR TO waypoint</p>`
             + `<table style="border-collapse:collapse;font-size:0.88rem;width:100%"><thead>`
             + `<tr style="border-bottom:2px solid #e5e7eb">`
@@ -502,7 +502,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
                 + `<td style="padding:0.3rem 0.5rem;text-align:right">${v ? r1(v.dme) : '—'}</td>`
                 + `</tr>`;
         });
-        vHtml += `</tbody></table></div>`;
+        vHtml += `</tbody></table>`;
         vorDiv.innerHTML = vHtml;
         vorDiv.style.display = 'block';
     } else {
