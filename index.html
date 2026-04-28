@@ -463,7 +463,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         `<td style="padding:0.3rem 0.5rem;font-weight:600;color:#1e3a5f">${litres} L</td></tr>`;
     const altRow = altInfo && !altInfo.warning
         ? row(`Alternate ${altInfo.label}`, r2(s.alternateFuel),
-              `${r1(altInfo.nm)} NM · ${fmtTime(altInfo.ete)}`)
+              `${r1(altInfo.nm)} NM · ${fmtTime(altInfo.ete)} · incl. go-around`)
         : '';
     document.getElementById('fuelSummary').innerHTML =
         `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Fuel Summary</h3>` +
@@ -471,10 +471,10 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         `<table style="border-collapse:collapse;font-size:0.88rem"><tbody>` +
         row('Trip fuel',    r2(s.tripFuel)) +
         row('Taxi / runup', r2(s.taxiFuel)) +
-        row('Climb fuel',   r2(s.climbFuel), 'dept.') +
-        (s.tgCount > 0 ? row(`T&amp;G ×${s.tgCount}`, r2(s.tgFuel), `×(${s.tgCircuitMin} min + climb)`) : '') +
+        row('Climb fuel',   r2(s.climbFuel), 'departure') +
+        (s.tgCount > 0 ? row(`T&amp;G ×${s.tgCount}`, r2(s.tgFuel), `${s.tgCount} × (${s.tgCircuitMin} min circuit + climb)`) : '') +
         subtotal('Expected burn', r2(s.expectedBurn), r1(s.expectedBurn * 3.78541)) +
-        row('Go-around',    r2(s.climbFuel), 'dest.') +
+        row('Go-around',    r2(s.climbFuel), 'destination go-around') +
         altRow +
         row('Holding (10 min)', r2(s.holdingFuel)) +
         row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +
