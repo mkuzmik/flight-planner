@@ -497,7 +497,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
             vHtml += `<tr style="border-bottom:1px solid #f1f5f9">`
                 + `<td style="padding:0.3rem 0.5rem">${pt.name}</td>`
                 + `<td style="padding:0.3rem 0.5rem;font-weight:600">${v ? v.ident : '—'}</td>`
-                + `<td style="padding:0.3rem 0.5rem;color:#555">${v?.freq || '—'}</td>`
+                + `<td style="padding:0.3rem 0.5rem;text-align:left;color:#555">${v?.freq || '—'}</td>`
                 + `<td style="padding:0.3rem 0.5rem;text-align:right">${v ? r0(v.radial) + '°' : '—'}</td>`
                 + `<td style="padding:0.3rem 0.5rem;text-align:right">${v ? r1(v.dme) : '—'}</td>`
                 + `</tr>`;
