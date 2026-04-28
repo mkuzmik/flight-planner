@@ -227,16 +227,15 @@ async function fetchVors(points, cruiseAltFt) {
 
 function parseVorCsv(text) {
     const lines = text.split('\n');
-    // header: "id","filename","ident","name","type","frequency_khz","latitude_deg","longitude_deg","elevation_ft",...
     const vors = [];
     for (let i = 1; i < lines.length; i++) {
-        const cols = splitCsvLine(lines[i]);
+        const cols = splitCsvLine(lines[i]).map(c => c.replace(/"/g, '').trim());
         if (cols.length < 9) continue;
         vors.push({
-            ident:  cols[2].replace(/"/g, ''),
-            name:   cols[3].replace(/"/g, ''),
-            type:   cols[4].replace(/"/g, ''),
-            freq:   formatFreq(cols[5].replace(/"/g, '')),
+            ident:  cols[2],
+            name:   cols[3],
+            type:   cols[4],
+            freq:   formatFreq(cols[5]),
             lat:    parseFloat(cols[6]),
             lon:    parseFloat(cols[7]),
             elevFt: parseFloat(cols[8]) || 0,
