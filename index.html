@@ -205,27 +205,62 @@ async function fetchAirportCoords(icao) {
 }
 
 
-// ── VORs — OpenStreetMap Overpass API ────────────────────────────────────────
+// ── VORs — bundled OurAirports navaids CSV ───────────────────────────────────
+let _vorCache = null;
 async function fetchVors(points, cruiseAltFt) {
+    if (!_vorCache) {
+        const resp = await fetch('assets/vors.csv');
+        if (!resp.ok) throw new Error(`Could not load VOR database (${resp.status})`);
+        const text = await resp.text();
+        _vorCache = parseVorCsv(text);
+    }
+    // Filter to VORs within max LOS range of the route bbox
     const lats = points.map(p => p.lat), lons = points.map(p => p.lon);
-    // Expand bbox by max LOS range (NM→degrees), scaled by latitude for longitude
     const maxRangeNm = 1.23 * Math.sqrt(Math.max(0, cruiseAltFt));
     const latPad = maxRangeNm / 60;
     const avgLat = (Math.min(...lats) + Math.max(...lats)) / 2;
     const lonPad = maxRangeNm / (60 * Math.cos(avgLat * Math.PI / 180));
-    const bbox = `${(Math.min(...lats) - latPad).toFixed(4)},${(Math.min(...lons) - lonPad).toFixed(4)},`
-               + `${(Math.max(...lats) + latPad).toFixed(4)},${(Math.max(...lons) + lonPad).toFixed(4)}`;
-    const query = `[out:json][timeout:25];node["aeroway"="navaid"]["navaid:type"~"^(vor|vor_dme|vortac|dvor|dvor_dme)$",i](${bbox});out;`;
-    const resp = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query));
-    if (!resp.ok) throw new Error(`Overpass returned ${resp.status}`);
-    const json = await resp.json();
-    return json.elements.map(el => ({
-        ident:  el.tags?.ref ?? el.tags?.name ?? '???',
-        freq:   el.tags?.['freq'] ?? el.tags?.['frequency'] ?? '',
-        lat:    el.lat,
-        lon:    el.lon,
-        elevFt: parseFloat(el.tags?.ele ?? 'NaN') * 3.28084, // ele is meters in OSM
-    }));
+    const minLat = Math.min(...lats) - latPad, maxLat = Math.max(...lats) + latPad;
+    const minLon = Math.min(...lons) - lonPad, maxLon = Math.max(...lons) + lonPad;
+    return _vorCache.filter(v => v.lat >= minLat && v.lat <= maxLat && v.lon >= minLon && v.lon <= maxLon);
+}
+
+function parseVorCsv(text) {
+    const lines = text.split('\n');
+    // header: "id","filename","ident","name","type","frequency_khz","latitude_deg","longitude_deg","elevation_ft",...
+    const vors = [];
+    for (let i = 1; i < lines.length; i++) {
+        const cols = splitCsvLine(lines[i]);
+        if (cols.length < 9) continue;
+        vors.push({
+            ident:  cols[2].replace(/"/g, ''),
+            name:   cols[3].replace(/"/g, ''),
+            type:   cols[4].replace(/"/g, ''),
+            freq:   formatFreq(cols[5].replace(/"/g, '')),
+            lat:    parseFloat(cols[6]),
+            lon:    parseFloat(cols[7]),
+            elevFt: parseFloat(cols[8]) || 0,
+        });
+    }
+    return vors.filter(v => isFinite(v.lat) && isFinite(v.lon));
+}
+
+function splitCsvLine(line) {
+    const cols = [];
+    let cur = '', inQuote = false;
+    for (const ch of line) {
+        if (ch === '"') { inQuote = !inQuote; cur += ch; }
+        else if (ch === ',' && !inQuote) { cols.push(cur); cur = ''; }
+        else cur += ch;
+    }
+    cols.push(cur);
+    return cols;
+}
+
+function formatFreq(khz) {
+    const n = parseFloat(khz);
+    if (!isFinite(n)) return '';
+    return (n / 1000).toFixed(2);
 }
 
 
