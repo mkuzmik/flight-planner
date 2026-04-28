@@ -79,6 +79,8 @@
             #legendCard h3 { font-size: 0.7rem !important; margin-bottom: 0.4rem; }
             #legendCard h4 { font-size: 0.65rem !important; margin-bottom: 0.25rem; }
             #legendCard dl { gap: 0.1rem 0.5rem; }
+            #fuelVorRow { display: grid; grid-template-columns: auto 1fr; gap: 1rem; align-items: start; margin-top: 0.5rem; }
+            #fuelVorRow .card { margin-top: 0 !important; }
         }
     </style>
 </head>
@@ -158,8 +160,10 @@
         <div class="card" style="overflow-x: auto; padding: 0;">
             <table id="planTable"></table>
         </div>
+        <div id="fuelVorRow">
         <div class="card" id="fuelSummary" style="margin-top: 1rem;"></div>
         <div class="card" id="vorSummary" style="display:none;margin-top: 1rem;"></div>
+        </div>
     </div>
 </div>
 
