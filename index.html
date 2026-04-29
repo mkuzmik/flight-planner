@@ -491,7 +491,6 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
     if (cruiseAlt > 0 && pointVors.some(v => v !== null)) {
         const hasAnyVor = pointVors.some(v => v !== null);
         let vHtml = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">VOR Navigation</h3>`
-            + `<p style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.6rem">Nearest VOR within radio line-of-sight at ${cruiseAlt.toLocaleString()} ft MSL &mdash; radial is magnetic bearing FROM VOR TO waypoint</p>`
             + `<table style="border-collapse:collapse;font-size:0.88rem;width:100%"><thead>`
             + `<tr style="border-bottom:2px solid #e5e7eb">`
             + `<th style="padding:0.3rem 0.5rem;text-align:left">Waypoint</th>`
@@ -536,6 +535,9 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>GS</b></dt><dd>Ground Speed — actual speed over ground, accounting for wind component</dd>
         <dt><b>ETE</b></dt><dd>Estimated Time En-route — leg distance ÷ ground speed</dd>
         <dt><b>TAS</b></dt><dd>True Air Speed — airspeed corrected for altitude and temperature</dd>
+        <dt><b>Radial</b></dt><dd>Magnetic bearing FROM the VOR TO the waypoint</dd>
+        <dt><b>DME</b></dt><dd>Distance from VOR to waypoint in NM</dd>
+        <dt><b>LOS</b></dt><dd>VOR shown only if within radio line-of-sight: 1.23 × (√cruise alt + √VOR elev) NM</dd>
       </dl>
     </div>
     <div>
