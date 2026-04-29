@@ -348,16 +348,16 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
                 const [altLeg] = computeLegs([lastPt, { ...airport, ele: 0 }],
                                               windDir, windSpeed, tas, fuelGph, declination);
                 if (!isFinite(altLeg.gs) || altLeg.gs <= 0) {
-                    altInfo = { fuel: 0, label: `${icaoCode} – ${airport.name}`,
+                    altInfo = { fuel: 0, label: `${icaoCode} – ${airport.name}`, icao: icaoCode,
                                 warning: `Alternate leg to ${icaoCode} has invalid ground speed — fuel not included.` };
                 } else {
                     const fuel = altLeg.fuel + climbFuel; // leg + go-around at alternate
-                    altInfo = { fuel, label: `${icaoCode} – ${airport.name}`,
+                    altInfo = { fuel, label: `${icaoCode} – ${airport.name}`, icao: icaoCode,
                                 nm: altLeg.dist, ete: altLeg.eteH };
                 }
                 setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
             } catch (e) {
-                altInfo = { fuel: 0, label: icaoCode,
+                altInfo = { fuel: 0, label: icaoCode, icao: icaoCode,
                             warning: `Could not look up alternate ${icaoCode}: ${e.message}` };
                 setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
             }
@@ -457,18 +457,16 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
     if (hasInvalid) warnings.push('⚠ Some legs are invalid — trip fuel may be incomplete.');
     if (altInfo?.warning) warnings.push(`⚠ ${altInfo.warning}`);
     const warnHtml = warnings.map(w => `<p style="color:#dc2626;font-size:0.82rem;margin-bottom:0.4rem">${w}</p>`).join('');
-    const row = (label, value, note = '') =>
+    const row = (label, value) =>
         `<tr><td style="padding:0.3rem 0.5rem;color:#555">${label}</td>` +
-        `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums">${value} gal</td>` +
-        `<td style="padding:0.3rem 0.5rem;font-size:0.78rem;color:#94a3b8">${note}</td></tr>`;
+        `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums">${value} gal</td></tr>`;
     const subtotal = (label, value, litres) =>
         `<tr style="border-top:1px solid #e5e7eb;background:#f8fafc">` +
         `<td style="padding:0.3rem 0.5rem;font-weight:600;color:#1e3a5f">${label}</td>` +
         `<td style="padding:0.3rem 0.5rem;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${value} gal</td>` +
         `<td style="padding:0.3rem 0.5rem;font-weight:600;color:#1e3a5f">${litres} L</td></tr>`;
     const altRow = altInfo && !altInfo.warning
-        ? row(`Alternate ${altInfo.label}`, r2(s.alternateFuel),
-              `${r1(altInfo.nm)} NM · ${fmtTime(altInfo.ete)} · incl. go-around`)
+        ? row(`Alternate ${altInfo.icao}`, r2(s.alternateFuel))
         : '';
     document.getElementById('fuelSummary').innerHTML =
         `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Fuel Summary</h3>` +
@@ -476,10 +474,10 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         `<table style="border-collapse:collapse;font-size:0.88rem"><tbody>` +
         row('Trip fuel',    r2(s.tripFuel)) +
         row('Taxi / runup', r2(s.taxiFuel)) +
-        row('Climb fuel',   r2(s.climbFuel), 'departure') +
-        (s.tgCount > 0 ? row(`T&amp;G ×${s.tgCount}`, r2(s.tgFuel), `${s.tgCount} × (${s.tgCircuitMin} min circuit + climb)`) : '') +
+        row('Climb fuel',   r2(s.climbFuel)) +
+        (s.tgCount > 0 ? row(`T&amp;G ×${s.tgCount}`, r2(s.tgFuel)) : '') +
         subtotal('Expected burn', r2(s.expectedBurn), r1(s.expectedBurn * 3.78541)) +
-        row('Go-around',    r2(s.climbFuel), 'destination go-around') +
+        row('Go-around',    r2(s.climbFuel)) +
         altRow +
         row('Holding (10 min)', r2(s.holdingFuel)) +
         row(`Reserve (${s.reserveMin} min)`, r2(s.reserveFuel)) +
@@ -545,11 +543,11 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
       <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .75rem;">
         <dt><b>Trip</b></dt><dd>Fuel burned flying all legs at cruise consumption (GPH × ETE)</dd>
         <dt><b>Taxi</b></dt><dd>Fixed allowance for taxi and engine run-up before departure</dd>
-        <dt><b>Climb</b></dt><dd>Extra fuel for one full-power climb; counted twice in total (departure + go-around)</dd>
+        <dt><b>Climb</b></dt><dd>Extra fuel for one full-power climb from departure</dd>
         <dt><b>T&amp;G</b></dt><dd>Touch-and-go: count × (circuit time × GPH + one climb fuel)</dd>
-        <dt><b>Expected burn</b></dt><dd>Taxi + climb + T&amp;G fuel + trip — the planned consumption with no contingencies</dd>
-        <dt><b>Go-around</b></dt><dd>Second climb allowance, budgeted for a missed approach at destination</dd>
-        <dt><b>Alternate</b></dt><dd>Fuel to fly from destination to alternate airport + one go-around</dd>
+        <dt><b>Expected burn</b></dt><dd>Taxi + climb + T&amp;G + trip — planned consumption, no contingencies</dd>
+        <dt><b>Go-around</b></dt><dd>Second climb allowance for a missed approach at destination</dd>
+        <dt><b>Alternate</b></dt><dd>Fuel from destination to alternate ICAO + one go-around climb</dd>
         <dt><b>Holding</b></dt><dd>Fixed 10-minute holding reserve at cruise consumption</dd>
         <dt><b>Reserve</b></dt><dd>Regulatory final reserve (45 or 60 min at cruise consumption)</dd>
       </dl>
