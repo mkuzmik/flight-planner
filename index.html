@@ -48,7 +48,9 @@
             max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             text-align: left;
         }
-        tbody tr:hover td { background: #eff6ff; }
+        #fuelSummary table { width: auto; }
+        #fuelSummary td { max-width: none; white-space: nowrap; overflow: visible; text-overflow: clip; }
+        #fuelSummary td:nth-child(3) { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
         tbody tr:nth-child(even) td { background: #f8fafc; }
         tbody tr:nth-child(even):hover td { background: #eff6ff; }
         .row-invalid td { color: #dc2626; }
@@ -453,9 +455,9 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
     if (altInfo?.warning) warnings.push(`⚠ ${altInfo.warning}`);
     const warnHtml = warnings.map(w => `<p style="color:#dc2626;font-size:0.82rem;margin-bottom:0.4rem">${w}</p>`).join('');
     const row = (label, value, note = '') =>
-        `<tr><td style="padding:0.3rem 0.5rem;color:#555;white-space:nowrap">${label}</td>` +
-        `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${value} gal</td>` +
-        `<td style="padding:0.3rem 0.5rem;font-size:0.78rem;color:#94a3b8;width:1px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${note}</td></tr>`;
+        `<tr><td style="padding:0.3rem 0.5rem;color:#555">${label}</td>` +
+        `<td style="padding:0.3rem 0.5rem;text-align:right;font-variant-numeric:tabular-nums">${value} gal</td>` +
+        `<td style="padding:0.3rem 0.5rem;font-size:0.78rem;color:#94a3b8">${note}</td></tr>`;
     const subtotal = (label, value, litres) =>
         `<tr style="border-top:1px solid #e5e7eb;background:#f8fafc">` +
         `<td style="padding:0.3rem 0.5rem;font-weight:600;color:#1e3a5f">${label}</td>` +
