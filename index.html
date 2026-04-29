@@ -51,10 +51,9 @@
         #fuelSummary table { width: auto; }
         #fuelSummary td { max-width: none; white-space: nowrap; overflow: visible; text-overflow: clip; }
         #fuelSummary td:nth-child(3) { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
-        #vorSummary table { width: 100%; }
-        #vorSummary td, #vorSummary th { max-width: none; }
-        #vorSummary td:not(:first-child), #vorSummary th:not(:first-child) { white-space: nowrap; }
-        #vorSummary td:first-child, #vorSummary th:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #vorSummary table { width: 100%; table-layout: fixed; }
+        #vorSummary td, #vorSummary th { max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #vorSummary td:not(:first-child), #vorSummary th:not(:first-child) { text-overflow: clip; }
         tbody tr:nth-child(even) td { background: #f8fafc; }
         tbody tr:nth-child(even):hover td { background: #eff6ff; }
         .row-invalid td { color: #dc2626; }
@@ -498,10 +497,10 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
             + `<table style="border-collapse:collapse;font-size:0.88rem;width:100%"><thead>`
             + `<tr style="border-bottom:2px solid #e5e7eb">`
             + `<th style="padding:0.3rem 0.5rem;text-align:left">Waypoint</th>`
-            + `<th style="padding:0.3rem 0.5rem;text-align:left">VOR</th>`
-            + `<th style="padding:0.3rem 0.5rem;text-align:left">Freq</th>`
-            + `<th style="padding:0.3rem 0.5rem;text-align:right">Radial</th>`
-            + `<th style="padding:0.3rem 0.5rem;text-align:right">DME (NM)</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:left;width:3.5em">VOR</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:left;width:4.5em">Freq</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:right;width:4em">Radial</th>`
+            + `<th style="padding:0.3rem 0.5rem;text-align:right;width:5em">DME (NM)</th>`
             + `</tr></thead><tbody>`;
         points.forEach((pt, i) => {
             const v = pointVors[i];
