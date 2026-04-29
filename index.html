@@ -51,6 +51,10 @@
         #fuelSummary table { width: auto; }
         #fuelSummary td { max-width: none; white-space: nowrap; overflow: visible; text-overflow: clip; }
         #fuelSummary td:nth-child(3) { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+        #vorSummary table { width: 100%; }
+        #vorSummary td, #vorSummary th { max-width: none; }
+        #vorSummary td:not(:first-child), #vorSummary th:not(:first-child) { white-space: nowrap; }
+        #vorSummary td:first-child, #vorSummary th:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         tbody tr:nth-child(even) td { background: #f8fafc; }
         tbody tr:nth-child(even):hover td { background: #eff6ff; }
         .row-invalid td { color: #dc2626; }
