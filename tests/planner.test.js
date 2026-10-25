@@ -532,6 +532,24 @@ describe('segmentPolygonIntervals', () => {
     it('returns nothing for a segment that misses the polygon', () => {
         expect(segmentPolygonIntervals([20, 54], [23, 54], BOX)).toEqual([]);
     });
+    it('counts a leg along any edge as inside', () => {
+        for (const [a, b] of [
+            [[21.2, 53], [21.8, 53]],   // north
+            [[21.2, 52], [21.8, 52]],   // south
+            [[21, 52.2], [21, 52.8]],   // west
+            [[22, 52.2], [22, 52.8]],   // east
+        ]) expect(segmentPolygonIntervals(a, b, BOX)).toEqual([[0, 1]]);
+    });
+    it('counts a leg along a hole edge as inside', () => {
+        const withHole = [BOX[0], square(21.25, 52.25, 0.5)[0]];
+        expect(segmentPolygonIntervals([21.3, 52.75], [21.7, 52.75], withHole)).toEqual([[0, 1]]);
+        expect(segmentPolygonIntervals([21.3, 52.25], [21.7, 52.25], withHole)).toEqual([[0, 1]]);
+    });
+    it('splits a leg that runs partly along an edge at the edge ends', () => {
+        const [iv] = segmentPolygonIntervals([20.5, 53], [21.5, 53], BOX);
+        expect(iv[0]).toBeCloseTo(0.5);
+        expect(iv[1]).toBe(1);
+    });
     it('returns two intervals for a concave polygon entered twice', () => {
         // U-shape open to the north: route along lat 52.8 crosses both arms
         const U = [[[21, 52], [22, 52], [22, 53], [21.7, 53], [21.7, 52.3], [21.3, 52.3], [21.3, 53], [21, 53], [21, 52]]];
@@ -543,6 +561,17 @@ describe('buildAirspaces', () => {
     it('drops duplicate static features', () => {
         const f = staticFeature('CTR EPXX', 'CTR', 'GND', 'A020');
         expect(buildAirspaces([f, f])).toHaveLength(1);
+    });
+    it('keeps static features that differ only after the first vertex', () => {
+        const a = staticFeature('R1', 'R', 'GND', 'A020', BOX);
+        const b = staticFeature('R1', 'R', 'GND', 'A020', [[[21, 52], [23, 52], [23, 54], [21, 54], [21, 52]]]);
+        expect(buildAirspaces([a, b])).toHaveLength(2);
+    });
+    it('keeps reserved areas that share a designator and first vertex but differ in shape', () => {
+        const r = [['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061']];
+        const a = reservedFeature('EPTR1', 'TRA', r, BOX);
+        const b = reservedFeature('EPTR1', 'TRA', r, [[[21, 52], [23, 52], [23, 54], [21, 54], [21, 52]]]);
+        expect(buildAirspaces([], [[a], [b]])).toHaveLength(2);
     });
     it('merges reservation layers per area and dedupes reservations', () => {
         const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];

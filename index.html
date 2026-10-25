@@ -300,16 +300,11 @@ function formatFreq(khz) {
 
 // ── Airspace — PANSA AUP/UUP + static airspace, fetched at deploy time ───────
 // (scripts/fetch-airspace.mjs; PANSA sends no CORS headers, so it can't be fetched live)
-const _airspaceCache = {};
+// Revalidated on every check so an open tab picks up data from a newer deploy
 async function loadAirspaceFile(name) {
-    if (!_airspaceCache[name]) {
-        _airspaceCache[name] = fetch(`data/airspace/${name}.json`).then(resp => {
-            if (!resp.ok) throw new Error(`data/airspace/${name}.json: HTTP ${resp.status}`);
-            return resp.json();
-        });
-        _airspaceCache[name].catch(() => delete _airspaceCache[name]);
-    }
-    return _airspaceCache[name];
+    const resp = await fetch(`data/airspace/${name}.json`, { cache: 'no-cache' });
+    if (!resp.ok) throw new Error(`data/airspace/${name}.json: HTTP ${resp.status}`);
+    return resp.json();
 }
 
 // PANSA validity strings are UTC, e.g. "2026-10-25 06:00"
@@ -341,10 +336,14 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
     return { crossings, meta, warnings };
 }
 
-function renderAirspace(result, legs, errorMsg = null) {
+function renderAirspace(result, legs, errorMsg = null, pending = false) {
     const card = document.getElementById('airspaceCard');
     const title = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace</h3>`;
     card.style.display = 'block';
+    if (pending) {
+        card.innerHTML = title + `<p class="as-note">Checking airspace…</p>`;
+        return;
+    }
     if (errorMsg) {
         card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
         return;
@@ -507,6 +506,7 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
 
         // Airspace check — isolated so failures don't abort main plan
         setStatus('Checking airspace…');
+        renderAirspace(null, legs, null, true);
         try {
             renderAirspace(await checkAirspace(points, legs, cruiseAlt, departure), legs);
         } catch (e) {

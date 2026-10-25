@@ -152,21 +152,41 @@ function pointInRing([x, y], ring) {
     return inside;
 }
 
+const EPS = 1e-9;
+
+function pointOnSegment([x, y], [x1, y1], [x2, y2]) {
+    const cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1);
+    if (Math.abs(cross) > EPS * Math.hypot(x2 - x1, y2 - y1)) return false;
+    return x >= Math.min(x1, x2) - EPS && x <= Math.max(x1, x2) + EPS
+        && y >= Math.min(y1, y2) - EPS && y <= Math.max(y1, y2) + EPS;
+}
+
+const pointOnRing = (pt, ring) => ring.some((p, i) => i > 0 && pointOnSegment(pt, ring[i - 1], p));
+
 // rings: GeoJSON Polygon coordinates — [outer, ...holes], each ring [[lon, lat], ...]
+// A point on any boundary (outer or hole) counts as inside — flying along an
+// airspace boundary is reported, not treated as clear.
 export function pointInPolygon(pt, rings) {
+    if (rings.some(r => pointOnRing(pt, r))) return true;
     return pointInRing(pt, rings[0]) && !rings.slice(1).some(h => pointInRing(pt, h));
 }
 
-// Parameter t ∈ [0,1] along a→b where it crosses c→d, or null
-function segmentIntersectT(a, b, c, d) {
+// Parameters t ∈ [0,1] along a→b where it meets c→d; for collinear overlap,
+// where c and d project onto a→b
+function segmentIntersectTs(a, b, c, d) {
     const rx = b[0] - a[0], ry = b[1] - a[1];
     const sx = d[0] - c[0], sy = d[1] - c[1];
-    const den = rx * sy - ry * sx;
-    if (den === 0) return null;
     const qx = c[0] - a[0], qy = c[1] - a[1];
+    const rLen = Math.hypot(rx, ry);
+    const den = rx * sy - ry * sx;
+    if (Math.abs(den) <= EPS * rLen * Math.hypot(sx, sy)) {
+        if (rLen === 0 || Math.abs(qx * ry - qy * rx) > EPS * rLen) return [];
+        return [c, d].map(p => ((p[0] - a[0]) * rx + (p[1] - a[1]) * ry) / (rLen * rLen))
+                     .filter(t => t >= 0 && t <= 1);
+    }
     const t = (qx * sy - qy * sx) / den;
     const u = (qx * ry - qy * rx) / den;
-    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [t] : [];
 }
 
 // Portions of segment a→b inside the polygon, as [[t0, t1], ...] with t ∈ [0,1].
@@ -174,10 +194,8 @@ function segmentIntersectT(a, b, c, d) {
 export function segmentPolygonIntervals(a, b, rings) {
     const ts = [0, 1];
     for (const ring of rings)
-        for (let i = 0; i < ring.length - 1; i++) {
-            const t = segmentIntersectT(a, b, ring[i], ring[i + 1]);
-            if (t !== null) ts.push(t);
-        }
+        for (let i = 0; i < ring.length - 1; i++)
+            ts.push(...segmentIntersectTs(a, b, ring[i], ring[i + 1]));
     ts.sort((x, y) => x - y);
     const intervals = [];
     for (let i = 0; i < ts.length - 1; i++) {
@@ -224,7 +242,7 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
         if (!polygons.length) continue;
         const p = f.properties;
         // The static layer repeats identical features (one per activation period)
-        const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(polygons[0][0][0])].join('|');
+        const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(polygons)].join('|');
         if (seen.has(key)) continue;
         seen.add(key);
         out.push({
@@ -238,7 +256,7 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
         for (const f of layer) {
             const polygons = polygonsOf(f.geometry);
             if (!polygons.length) continue;
-            const key = f.properties.designator + '|' + JSON.stringify(polygons[0][0][0]);
+            const key = f.properties.designator + '|' + JSON.stringify(polygons);
             let as = byKey.get(key);
             if (!as) {
                 as = { kind: 'reserved', designator: f.properties.designator, type: f.properties.airspaceElementType,
