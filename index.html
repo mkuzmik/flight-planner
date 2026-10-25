@@ -318,8 +318,10 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
     const names = departure ? ['aup', 'uup', 'aup-next'] : ['aup', 'uup'];
     const [staticFeatures, ...layers] = await Promise.all(['static', ...names].map(loadAirspaceFile));
     const airspaces = buildAirspaces(staticFeatures, layers);
-    const crossings = findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt: cruiseAlt, departure });
 
+    // Reservations can only show an area is free when the AUP covers the
+    // flight and the data is fresh; otherwise nothing is reported as clear
+    let reliable = true;
     const warnings = [];
     if (!cruiseAlt) warnings.push('No cruise altitude set — all altitudes are treated as conflicting.');
     if (!departure) warnings.push('No departure time set — every reservation in today\'s AUP/UUP is treated as active.');
@@ -328,12 +330,19 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
         const end  = departure.getTime() + totH * 3600e3;
         const from = parseUtc(meta.dates?.aup?.[0]);
         const to   = meta.counts?.['aup-next'] ? parseUtc(meta.dates?.['aup-next']?.[1]) : parseUtc(meta.dates?.aup?.[1]);
-        if (!(departure.getTime() >= from && end <= to))
-            warnings.push(`Flight time is outside the published AUP (${esc(meta.dates?.aup?.[0])} – ${esc(fmtUtc(to))} UTC) — reservations unknown.`);
+        if (!(departure.getTime() >= from && end <= to)) {
+            reliable = false;
+            warnings.push(`Flight time is outside the published AUP (${esc(meta.dates?.aup?.[0])} – ${isFinite(to) ? new Date(to).toISOString().slice(0, 16).replace('T', ' ') : '?'} UTC) — reservations unknown.`);
+        }
     }
     const ageH = (Date.now() - Date.parse(meta.fetchedAt)) / 3600e3;
-    if (ageH > 2) warnings.push(`Airspace data is ${Math.round(ageH)} h old — check the current AUP/UUP before flight.`);
-    return { crossings, meta, warnings };
+    if (!(ageH <= 2)) {
+        reliable = false;
+        warnings.push(`Airspace data is ${isFinite(ageH) ? Math.round(ageH) + ' h old' : 'of unknown age'} — check the current AUP/UUP before flight.`);
+    }
+    const crossings = findAirspaceCrossings(points, legs, airspaces,
+                                            { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable });
+    return { crossings, meta, warnings, reliable };
 }
 
 function renderAirspace(result, legs, errorMsg = null, pending = false) {
@@ -348,7 +357,7 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
         return;
     }
-    const { crossings, meta, warnings } = result;
+    const { crossings, meta, warnings, reliable } = result;
     const relevant = crossings.filter(c => c.status !== 'inactive');
     const inactive = crossings.filter(c => c.status === 'inactive');
     const BADGE = {
@@ -357,6 +366,7 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         restricted: ['as-red',   'RESTRICTED'],
         adiz:       ['as-amber', 'ADIZ'],
         controlled: ['as-amber', 'CONTROLLED'],
+        unverified: ['as-amber', 'VERIFY'],
     };
     const legName = c => c.enterLeg === c.exitLeg
         ? `${legs[c.enterLeg].from}→${legs[c.enterLeg].to}`
@@ -382,7 +392,9 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         }
         html += `</tbody></table>`;
     } else {
-        html += `<p style="font-size:0.88rem">No conflicting airspace found on the route.</p>`;
+        html += reliable
+            ? `<p style="font-size:0.88rem">No conflicting airspace found on the route.</p>`
+            : `<p style="font-size:0.88rem">No known conflicts, but reservations could not be fully checked (see warnings) — verify in the current AUP/UUP.</p>`;
     }
     if (inactive.length)
         html += `<p class="as-note">Crossed but not reserved at your time/altitude: ${inactive.map(c => esc(c.designator)).join(', ')}</p>`;
@@ -698,6 +710,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>ACTIVE</b></dt><dd>TRA/TSA/D/R/ATZ reserved in the PANSA AUP/UUP at your cruise altitude while you are inside it</dd>
         <dt><b>CONTROLLED</b></dt><dd>CTR/TMA/MCTR/MTMA on your route at your altitude — clearance required</dd>
         <dt><b>PROHIBITED / RESTRICTED</b></dt><dd>Permanent P or R area from the AIP on your route at your altitude</dd>
+        <dt><b>VERIFY</b></dt><dd>Reservable area on your route that can't be confirmed free — flight outside the published AUP or data too old</dd>
         <dt><b>Altitude</b></dt><dd>Checked at cruise; airspace touching departure or destination is checked from the surface up. FL = ft at standard pressure</dd>
         <dt><b>Time</b></dt><dd>Entry–exit from departure time + ETE. Without a departure time all of today's reservations count</dd>
       </dl>

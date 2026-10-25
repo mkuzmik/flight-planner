@@ -293,8 +293,10 @@ const STATIC_STATUS = { P: 'prohibited', R: 'restricted', ADIZ: 'adiz' };
 // altitude and (if a departure time is given) the time the aircraft is inside.
 // Airspace touching the departure or destination point is checked from the
 // surface up to cruise (climb/descent). Missing altitude or timing is treated
-// as a possible conflict, never as clear.
-export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null } = {}) {
+// as a possible conflict, never as clear. With reservationsReliable = false (flight
+// outside the published AUP, or stale data) a reserved area with no matching
+// reservation is 'unverified' rather than 'inactive'.
+export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null, reservationsReliable = true } = {}) {
     const raw = [];
     let cumNm = 0, cumH = 0;
     legs.forEach((leg, i) => {
@@ -313,13 +315,14 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
         cumH += eteH;
     });
 
-    // Join a crossing that continues across a waypoint into the next leg
+    // Join overlapping or adjacent pieces of the same airspace (across a waypoint,
+    // or several polygons of one MultiPolygon); a piece only ever extends the exit
     raw.sort((x, y) => x.enterNm - y.enterNm);
     const merged = [];
     for (const c of raw) {
         const prev = merged.findLast(m => m.as === c.as);
         if (prev && c.enterNm - prev.exitNm < 1e-6) {
-            prev.exitNm = c.exitNm; prev.exitH = c.exitH; prev.exitLeg = c.exitLeg;
+            if (c.exitNm > prev.exitNm) { prev.exitNm = c.exitNm; prev.exitH = c.exitH; prev.exitLeg = c.exitLeg; }
         } else merged.push({ ...c });
     }
 
@@ -348,7 +351,7 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
         } else {
             if (!c.as.reservations.length) continue;
             const active = c.as.reservations.filter(r => vertHit(r.lowerFt, r.upperFt) && timeHit(r.start, r.end));
-            result.push({ ...base, status: active.length ? 'active' : 'inactive',
+            result.push({ ...base, status: active.length ? 'active' : reservationsReliable ? 'inactive' : 'unverified',
                           reservations: active.length ? active : c.as.reservations, services: [] });
         }
     }

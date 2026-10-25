@@ -653,6 +653,27 @@ describe('findAirspaceCrossings', () => {
         expect(c.status).toBe('active');
     });
 
+    it('keeps the full crossing when another part of the area touches its entry point', () => {
+        const touching = [[[21, 52.5], [20.9, 52.7], [20.8, 52.7], [21, 52.5]]];
+        const multi = {
+            type: 'Feature',
+            properties: { designator: 'TMA M', airspaceElementType: 'TMA', lowerAltitude: 'GND', upperAltitude: 'F095', services: [] },
+            geometry: { type: 'MultiPolygon', coordinates: [BOX, touching] },
+        };
+        const crossings = findAirspaceCrossings(ROUTE, ROUTE_LEGS, buildAirspaces([multi]), { cruiseAltFt: 3500 });
+        expect(crossings).toHaveLength(1);
+        expect(crossings[0].enterNm).toBeCloseTo(20);
+        expect(crossings[0].exitNm).toBeCloseTo(60);
+    });
+
+    it('marks reserved areas unverified instead of inactive when reservations are not reliable', () => {
+        const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA',
+            [['2026-10-25T06:00:00Z', '2026-10-25T07:00:00Z', 'A025', 'F095']])]]);
+        const opts = { cruiseAltFt: 3500, departure: DEP };
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, opts)[0].status).toBe('inactive');
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { ...opts, reservationsReliable: false })[0].status).toBe('unverified');
+    });
+
     it('maps P and R areas to their own status', () => {
         const as = buildAirspaces([staticFeature('EPP1', 'P', 'GND', 'A050'),
                                    staticFeature('EPR1', 'R', 'GND', 'A050', square(21.2, 52.2, 0.5))]);
