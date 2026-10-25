@@ -18,10 +18,8 @@ async function getJson(path) {
     return resp.json();
 }
 
-const round = v => Math.round(v * 1e6) / 1e6;
-const roundCoords = c => typeof c[0] === 'number' ? c.map(round) : c.map(roundCoords);
-
-// Drop map-UI fields (popup HTML, label centroid) to keep the files small
+// Drop map-UI fields (popup HTML, label centroid) to keep the files small;
+// coordinates are kept exactly as published
 function slim(features, name) {
     if (!Array.isArray(features)) throw new Error(`${name}: expected an array of features`);
     return features
@@ -29,7 +27,7 @@ function slim(features, name) {
         .map(({ properties: { popupHtml, centroid, ...props }, geometry }) => ({
             type: 'Feature',
             properties: props,
-            geometry: { type: geometry.type, coordinates: roundCoords(geometry.coordinates) },
+            geometry: { type: geometry.type, coordinates: geometry.coordinates },
         }));
 }
 

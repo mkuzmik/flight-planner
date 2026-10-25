@@ -310,6 +310,13 @@ async function loadAirspaceFile(name) {
 // PANSA validity strings are UTC, e.g. "2026-10-25 06:00"
 const parseUtc = s => s ? Date.parse(s.replace(' ', 'T') + ':00Z') : NaN;
 const fmtUtc   = d => d ? new Date(d).toISOString().slice(11, 16) : '—';
+// HH:MM on the reference day, "MM-DD HH:MM" on any other UTC day
+const fmtUtcOn = (d, ref) => {
+    if (!d) return '—';
+    const iso = new Date(d).toISOString();
+    return iso.slice(0, 10) === new Date(ref).toISOString().slice(0, 10)
+        ? iso.slice(11, 16) : `${iso.slice(5, 10)} ${iso.slice(11, 16)}`;
+};
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 async function checkAirspace(points, legs, cruiseAlt, departure) {
@@ -342,7 +349,7 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
     }
     const crossings = findAirspaceCrossings(points, legs, airspaces,
                                             { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable });
-    return { crossings, meta, warnings, reliable };
+    return { crossings, meta, warnings, reliable, departure };
 }
 
 function renderAirspace(result, legs, errorMsg = null, pending = false) {
@@ -357,7 +364,11 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
         return;
     }
-    const { crossings, meta, warnings, reliable } = result;
+    const { crossings, meta, warnings, reliable, departure } = result;
+    const refDay = departure ?? Date.now();
+    const depLabel = departure
+        ? `departure ${departure.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+        : `no departure time — today's plan`;
     const relevant = crossings.filter(c => c.status !== 'inactive');
     const inactive = crossings.filter(c => c.status === 'inactive');
     const BADGE = {
@@ -375,10 +386,11 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         ? [...new Set(c.reservations.map(r => `${r.lower}–${r.upper}`))].join(', ')
         : `${c.lower}–${c.upper}`;
     const infoOf = c => c.reservations.length
-        ? c.reservations.map(r => [`${fmtUtc(r.start)}–${fmtUtc(r.end)}`, r.unit, r.remarks].filter(Boolean).map(esc).join(' · ')).join('<br>')
+        ? c.reservations.map(r => [`${fmtUtcOn(r.start, refDay)}–${fmtUtcOn(r.end, refDay)}`, r.unit, r.remarks].filter(Boolean).map(esc).join(' · ')).join('<br>')
         : c.services.map(sv => esc(`${sv.type} ${sv.frequencies.join(', ')}`)).join('<br>');
 
-    let html = title + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
+    let html = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace `
+             + `<small style="font-weight:400;color:#555">· ${esc(depLabel)}</small></h3>` + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
     if (relevant.length) {
         html += `<table><thead><tr><th>Airspace</th><th>Type</th><th>Status</th><th>Limits</th>`
               + `<th>Leg</th><th>NM</th><th>Time (UTC)</th><th>Reservation / Contact</th></tr></thead><tbody>`;
@@ -387,7 +399,7 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
             html += `<tr><td><b>${esc(c.designator)}</b></td><td>${esc(c.type)}</td>`
                   + `<td><span class="as-badge ${cls}">${label}</span></td><td>${esc(limitsOf(c))}</td>`
                   + `<td>${esc(legName(c))}</td><td>${r1(c.enterNm)}–${r1(c.exitNm)}</td>`
-                  + `<td>${c.enterTime ? `${fmtUtc(c.enterTime)}–${fmtUtc(c.exitTime)}` : '—'}</td>`
+                  + `<td>${c.enterTime ? `${fmtUtcOn(c.enterTime, refDay)}–${fmtUtcOn(c.exitTime, refDay)}` : '—'}</td>`
                   + `<td>${infoOf(c)}</td></tr>`;
         }
         html += `</tbody></table>`;

@@ -593,6 +593,17 @@ describe('buildAirspaces', () => {
         expect(as.reservations[0].unit).toBe('EPKK');
         expect(as.reservations[0].remarks).toBe('GLD');
     });
+    it('lets an explicitly empty unit or remarks in a later layer clear the earlier value', () => {
+        const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
+        const aup = reservedFeature('EPTR1', 'TRA', [r]);
+        aup.properties.airspaceReservations[0].remarks = 'OLD';
+        const uup = reservedFeature('EPTR1', 'TRA', [r]);
+        uup.properties.airspaceReservations[0].remarks = '';
+        delete uup.properties.airspaceReservations[0].unit;
+        const [as] = buildAirspaces([], [[aup], [uup]]);
+        expect(as.reservations[0].remarks).toBe('');
+        expect(as.reservations[0].unit).toBe('MIL');
+    });
     it('merges reservation layers per area and dedupes reservations', () => {
         const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
         const aup = [reservedFeature('EPTR1', 'TRA', [r])];

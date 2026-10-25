@@ -277,9 +277,10 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
                 const same = as.reservations.find(x => x.start === res.start && x.end === res.end
                                                     && x.lower === res.lower && x.upper === res.upper);
                 if (!same) { as.reservations.push(res); continue; }
-                // Later layers (UUP after AUP) carry the newer unit and remarks
-                if (res.unit) same.unit = res.unit;
-                if (res.remarks) same.remarks = res.remarks;
+                // Later layers (UUP after AUP) carry the newer unit and remarks,
+                // including an explicitly emptied one
+                if (r.unit !== undefined) same.unit = res.unit;
+                if (r.remarks !== undefined) same.remarks = res.remarks;
                 if (res.status === 'ACTIVATED') same.status = 'ACTIVATED';
             }
         }
