@@ -164,7 +164,7 @@
                 <input type="number" id="cruiseAlt" placeholder="e.g. 3500" min="0" step="100">
             </div>
             <div>
-                <label>Departure <small>(UTC, for airspace check)</small></label>
+                <label for="departure">Departure <small>(UTC, for airspace check)</small></label>
                 <input type="datetime-local" id="departure">
             </div>
             <div>
@@ -392,6 +392,7 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
 }
 
 async function dryRun() {
+    if (running) return;
     document.getElementById('windDir').value       = 270;
     document.getElementById('windSpeed').value     = 15;
     document.getElementById('tas').value           = 100;
@@ -438,11 +439,15 @@ async function calculate() {
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
+// One calculation at a time, so a slower earlier run can't overwrite a newer result
+let running = false;
 async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, departure = null) {
-    const btn = document.getElementById('calcBtn');
+    if (running) return;
+    running = true;
+    const btns = ['calcBtn', 'dryRunBtn'].map(id => document.getElementById(id));
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
-    btn.disabled = true;
+    btns.forEach(b => b.disabled = true);
     setStatus('Parsing GPX…');
 
     try {
@@ -516,7 +521,8 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
     } catch (e) {
         err(e.message);
     } finally {
-        btn.disabled = false;
+        running = false;
+        btns.forEach(b => b.disabled = false);
     }
 }
 

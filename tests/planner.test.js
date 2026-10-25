@@ -550,6 +550,15 @@ describe('segmentPolygonIntervals', () => {
         expect(iv[0]).toBeCloseTo(0.5);
         expect(iv[1]).toBe(1);
     });
+    it('returns a zero-length contact for a leg leaving from a boundary point', () => {
+        expect(segmentPolygonIntervals([21.5, 53], [21.5, 53.5], BOX)).toEqual([[0, 0]]);
+        expect(segmentPolygonIntervals([21.5, 53.5], [21.5, 53], BOX)).toEqual([[1, 1]]);
+    });
+    it('returns a zero-length contact for a leg touching a corner', () => {
+        const [iv] = segmentPolygonIntervals([21.5, 53.5], [22.5, 52.5], BOX);
+        expect(iv[0]).toBeCloseTo(0.5);
+        expect(iv[1]).toBeCloseTo(0.5);
+    });
     it('returns two intervals for a concave polygon entered twice', () => {
         // U-shape open to the north: route along lat 52.8 crosses both arms
         const U = [[[21, 52], [22, 52], [22, 53], [21.7, 53], [21.7, 52.3], [21.3, 52.3], [21.3, 53], [21, 53], [21, 52]]];
@@ -572,6 +581,17 @@ describe('buildAirspaces', () => {
         const a = reservedFeature('EPTR1', 'TRA', r, BOX);
         const b = reservedFeature('EPTR1', 'TRA', r, [[[21, 52], [23, 52], [23, 54], [21, 54], [21, 52]]]);
         expect(buildAirspaces([], [[a], [b]])).toHaveLength(2);
+    });
+    it('takes unit and remarks from the later layer for the same reservation', () => {
+        const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
+        const aup = reservedFeature('EPTR1', 'TRA', [r]);
+        const uup = reservedFeature('EPTR1', 'TRA', [r]);
+        uup.properties.airspaceReservations[0].unit = 'EPKK';
+        uup.properties.airspaceReservations[0].remarks = 'GLD';
+        const [as] = buildAirspaces([], [[aup], [uup]]);
+        expect(as.reservations).toHaveLength(1);
+        expect(as.reservations[0].unit).toBe('EPKK');
+        expect(as.reservations[0].remarks).toBe('GLD');
     });
     it('merges reservation layers per area and dedupes reservations', () => {
         const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
@@ -611,6 +631,26 @@ describe('findAirspaceCrossings', () => {
         const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, buildAirspaces([ctr]), { cruiseAltFt: 3500 });
         expect(c.designator).toBe('CTR EPAA');
         expect(c.enterNm).toBe(0);
+    });
+
+    it('reports a CTR whose boundary the departure or destination lies on', () => {
+        // Route starts on the CTR's east edge and leaves eastwards; reversed, it ends there
+        const ctr = staticFeature('CTR EPAA', 'CTR', 'GND', 'A020', square(20, 52, 0.5));
+        const pts = [{ name: 'A', lat: 52.25, lon: 20.5 }, { name: 'B', lat: 52.25, lon: 21.5 }];
+        const legs = [{ dist: 37, eteH: 0.5 }];
+        for (const route of [pts, [...pts].reverse()]) {
+            const [c] = findAirspaceCrossings(route, legs, buildAirspaces([ctr]), { cruiseAltFt: 3500, departure: DEP });
+            expect(c?.designator).toBe('CTR EPAA');
+            expect(c.enterNm).toBe(c.exitNm);
+        }
+    });
+
+    it('counts a reservation active at the moment of a point contact', () => {
+        const pts = [{ name: 'A', lat: 53, lon: 21.5 }, { name: 'B', lat: 53.5, lon: 21.5 }];
+        const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA',
+            [['2026-10-25T09:00:00Z', '2026-10-25T10:00:00Z', 'GND', 'F095']])]]);
+        const [c] = findAirspaceCrossings(pts, [{ dist: 30, eteH: 0.5 }], as, { cruiseAltFt: 3500, departure: DEP });
+        expect(c.status).toBe('active');
     });
 
     it('maps P and R areas to their own status', () => {

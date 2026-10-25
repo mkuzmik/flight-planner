@@ -190,25 +190,29 @@ function segmentIntersectTs(a, b, c, d) {
 }
 
 // Portions of segment a→b inside the polygon, as [[t0, t1], ...] with t ∈ [0,1].
-// Planar in lon/lat — fine for VFR leg lengths.
+// A segment that only touches the boundary (e.g. leaves from a point on it)
+// gets a zero-length [t, t] contact. Planar in lon/lat — fine for VFR leg lengths.
 export function segmentPolygonIntervals(a, b, rings) {
     const ts = [0, 1];
     for (const ring of rings)
         for (let i = 0; i < ring.length - 1; i++)
             ts.push(...segmentIntersectTs(a, b, ring[i], ring[i + 1]));
     ts.sort((x, y) => x - y);
+    const at = t => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
     const intervals = [];
     for (let i = 0; i < ts.length - 1; i++) {
         const t0 = ts[i], t1 = ts[i + 1];
         if (t1 - t0 < 1e-9) continue;
-        const tm = (t0 + t1) / 2;
-        const mid = [a[0] + (b[0] - a[0]) * tm, a[1] + (b[1] - a[1]) * tm];
-        if (!pointInPolygon(mid, rings)) continue;
+        if (!pointInPolygon(at((t0 + t1) / 2), rings)) continue;
         const last = intervals[intervals.length - 1];
         if (last && t0 - last[1] < 1e-9) last[1] = t1;
         else intervals.push([t0, t1]);
     }
-    return intervals;
+    for (const t of ts) {
+        if (intervals.some(([t0, t1]) => t >= t0 - 1e-9 && t <= t1 + 1e-9)) continue;
+        if (pointInPolygon(at(t), rings)) intervals.push([t, t]);
+    }
+    return intervals.sort((x, y) => x[0] - y[0]);
 }
 
 function polygonsOf(geometry) {
@@ -272,8 +276,11 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
                 };
                 const same = as.reservations.find(x => x.start === res.start && x.end === res.end
                                                     && x.lower === res.lower && x.upper === res.upper);
-                if (!same) as.reservations.push(res);
-                else if (res.status === 'ACTIVATED') same.status = 'ACTIVATED';
+                if (!same) { as.reservations.push(res); continue; }
+                // Later layers (UUP after AUP) carry the newer unit and remarks
+                if (res.unit) same.unit = res.unit;
+                if (res.remarks) same.remarks = res.remarks;
+                if (res.status === 'ACTIVATED') same.status = 'ACTIVATED';
             }
         }
     for (const as of out) as.reservations?.sort((x, y) => x.start - y.start);
@@ -326,7 +333,12 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
         const vertHit = (lo, hi) => cruise === null || isNaN(lo) || isNaN(hi) || (lo <= cruise && hi >= bandLo);
         const enterTime = depMs !== null && isFinite(c.enterH) ? new Date(depMs + c.enterH * 3600e3) : null;
         const exitTime  = depMs !== null && isFinite(c.exitH)  ? new Date(depMs + c.exitH  * 3600e3) : null;
-        const timeHit = (s, e) => !enterTime || !exitTime || (s < exitTime.getTime() && e > enterTime.getTime());
+        const timeHit = (s, e) => {
+            if (!enterTime || !exitTime) return true;
+            const t0 = enterTime.getTime(), t1 = exitTime.getTime();
+            // A point contact counts if the reservation is in force at that instant
+            return t0 === t1 ? s <= t0 && e >= t0 : s < t1 && e > t0;
+        };
         const base = { designator: c.as.designator, type: c.as.type, enterLeg: c.enterLeg, exitLeg: c.exitLeg,
                        enterNm: c.enterNm, exitNm: c.exitNm, enterTime, exitTime };
         if (c.as.kind === 'static') {
