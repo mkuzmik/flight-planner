@@ -58,3 +58,4 @@ Tests cover GPX parsing, geodesic math, wind calculations, leg computation, and 
 - Navigation logic goes in `js/planner.js` with a matching test in `tests/planner.test.js`
 - UI-only changes (layout, rendering) go in `index.html`
 - CI runs on every push and PR
+- Working conventions (branches, issues, PR descriptions, review) are in `AGENTS.md`
