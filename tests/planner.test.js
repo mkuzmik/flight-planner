@@ -4,6 +4,8 @@ import {
     computeWca, computeGs, computeLegs,
     computeFuelSummary, findNearestVor,
     fmtTime, r0, r1, r2,
+    parseAltitudeLimit, pointInPolygon, segmentPolygonIntervals,
+    buildAirspaces, findAirspaceCrossings,
 } from '../js/planner.js';
 
 // ── GPX fixtures ──────────────────────────────────────────────────────────────
@@ -460,5 +462,155 @@ describe('r0 / r1 / r2', () => {
     it('r2 rounds to 2 decimal places as string', () => {
         expect(r2(1.456)).toBe('1.46');
         expect(r2(6)).toBe('6.00');
+    });
+});
+
+// ── Airspace ──────────────────────────────────────────────────────────────────
+// Square 1°×1° box between lon 21–22, lat 52–53
+const BOX = [[[21, 52], [22, 52], [22, 53], [21, 53], [21, 52]]];
+const square = (lon0, lat0, size = 1) =>
+    [[[lon0, lat0], [lon0 + size, lat0], [lon0 + size, lat0 + size], [lon0, lat0 + size], [lon0, lat0]]];
+
+const staticFeature = (designator, type, lower, upper, rings = BOX, extra = {}) => ({
+    type: 'Feature',
+    properties: { designator, airspaceElementType: type, lowerAltitude: lower, upperAltitude: upper, services: [], ...extra },
+    geometry: { type: 'Polygon', coordinates: rings },
+});
+const reservedFeature = (designator, type, reservations, rings = BOX) => ({
+    type: 'Feature',
+    properties: {
+        designator, airspaceElementType: type,
+        airspaceReservations: reservations.map(([startDate, endDate, lowerAltitude, upperAltitude, status = 'PLANNED']) =>
+            ({ startDate, endDate, lowerAltitude, upperAltitude, unit: 'MIL', remarks: '', reservationStatus: status })),
+    },
+    geometry: { type: 'Polygon', coordinates: rings },
+});
+
+// West→east straight through the middle of BOX, 3 waypoints, legs of 1 h each
+const ROUTE = [
+    { name: 'A', lat: 52.5, lon: 20.5 },
+    { name: 'B', lat: 52.5, lon: 21.5 },
+    { name: 'C', lat: 52.5, lon: 22.5 },
+];
+const ROUTE_LEGS = [{ dist: 40, eteH: 1 }, { dist: 40, eteH: 1 }];
+
+describe('parseAltitudeLimit', () => {
+    it('parses GND, UNL, altitudes and flight levels', () => {
+        expect(parseAltitudeLimit('GND')).toBe(0);
+        expect(parseAltitudeLimit('UNL')).toBe(Infinity);
+        expect(parseAltitudeLimit('A061')).toBe(6100);
+        expect(parseAltitudeLimit('F095')).toBe(9500);
+        expect(parseAltitudeLimit('F660')).toBe(66000);
+    });
+    it('returns NaN for unknown formats', () => {
+        expect(parseAltitudeLimit('1500FT AGL')).toBeNaN();
+        expect(parseAltitudeLimit(undefined)).toBeNaN();
+    });
+});
+
+describe('pointInPolygon', () => {
+    it('detects points inside and outside', () => {
+        expect(pointInPolygon([21.5, 52.5], BOX)).toBe(true);
+        expect(pointInPolygon([20.5, 52.5], BOX)).toBe(false);
+    });
+    it('excludes holes', () => {
+        const withHole = [BOX[0], square(21.25, 52.25, 0.5)[0]];
+        expect(pointInPolygon([21.5, 52.5], withHole)).toBe(false);
+        expect(pointInPolygon([21.1, 52.1], withHole)).toBe(true);
+    });
+});
+
+describe('segmentPolygonIntervals', () => {
+    it('returns the inside portion of a crossing segment', () => {
+        const [iv] = segmentPolygonIntervals([20.5, 52.5], [22.5, 52.5], BOX);
+        expect(iv[0]).toBeCloseTo(0.25);
+        expect(iv[1]).toBeCloseTo(0.75);
+    });
+    it('covers the whole segment when it lies inside', () => {
+        expect(segmentPolygonIntervals([21.2, 52.5], [21.8, 52.5], BOX)).toEqual([[0, 1]]);
+    });
+    it('returns nothing for a segment that misses the polygon', () => {
+        expect(segmentPolygonIntervals([20, 54], [23, 54], BOX)).toEqual([]);
+    });
+    it('returns two intervals for a concave polygon entered twice', () => {
+        // U-shape open to the north: route along lat 52.8 crosses both arms
+        const U = [[[21, 52], [22, 52], [22, 53], [21.7, 53], [21.7, 52.3], [21.3, 52.3], [21.3, 53], [21, 53], [21, 52]]];
+        expect(segmentPolygonIntervals([20.5, 52.8], [22.5, 52.8], U)).toHaveLength(2);
+    });
+});
+
+describe('buildAirspaces', () => {
+    it('drops duplicate static features', () => {
+        const f = staticFeature('CTR EPXX', 'CTR', 'GND', 'A020');
+        expect(buildAirspaces([f, f])).toHaveLength(1);
+    });
+    it('merges reservation layers per area and dedupes reservations', () => {
+        const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
+        const aup = [reservedFeature('EPTR1', 'TRA', [r])];
+        const uup = [reservedFeature('EPTR1', 'TRA', [[...r.slice(0, 4), 'ACTIVATED'],
+                                                    ['2026-10-25T16:00:00Z', '2026-10-25T18:00:00Z', 'GND', 'F095']])];
+        const [as] = buildAirspaces([], [aup, uup]);
+        expect(as.reservations).toHaveLength(2);
+        expect(as.reservations[0].status).toBe('ACTIVATED');
+        expect(as.reservations[1].upperFt).toBe(9500);
+    });
+});
+
+describe('findAirspaceCrossings', () => {
+    const DEP = new Date('2026-10-25T10:00:00Z');
+
+    it('reports entry/exit distance and time, merged across a waypoint', () => {
+        const as = buildAirspaces([staticFeature('TMA EPXX', 'TMA', 'A020', 'F095')]);
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, departure: DEP });
+        expect(c.status).toBe('controlled');
+        expect(c.enterLeg).toBe(0);
+        expect(c.exitLeg).toBe(1);
+        expect(c.enterNm).toBeCloseTo(20);
+        expect(c.exitNm).toBeCloseTo(60);
+        expect(c.enterTime.toISOString()).toBe('2026-10-25T10:30:00.000Z');
+        expect(c.exitTime.toISOString()).toBe('2026-10-25T11:30:00.000Z');
+    });
+
+    it('skips static airspace above or below the cruise altitude', () => {
+        const as = buildAirspaces([staticFeature('TMA HIGH', 'TMA', 'A065', 'F095'),
+                                   staticFeature('EPP1', 'P', 'GND', 'A010')]);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500 })).toEqual([]);
+    });
+
+    it('checks airspace at departure/destination from the surface up', () => {
+        const ctr = staticFeature('CTR EPAA', 'CTR', 'GND', 'A020', square(20.4, 52.4, 0.2));
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, buildAirspaces([ctr]), { cruiseAltFt: 3500 });
+        expect(c.designator).toBe('CTR EPAA');
+        expect(c.enterNm).toBe(0);
+    });
+
+    it('maps P and R areas to their own status', () => {
+        const as = buildAirspaces([staticFeature('EPP1', 'P', 'GND', 'A050'),
+                                   staticFeature('EPR1', 'R', 'GND', 'A050', square(21.2, 52.2, 0.5))]);
+        const statuses = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500 }).map(c => c.status);
+        expect(statuses.sort()).toEqual(['prohibited', 'restricted']);
+    });
+
+    it('marks a reserved area active only when time and altitude overlap', () => {
+        const mk = (start, end, lo, hi) => buildAirspaces([], [[reservedFeature('EPTS1', 'TSA', [[start, end, lo, hi]])]]);
+        const opts = { cruiseAltFt: 3500, departure: DEP };
+        // Inside 10:30–11:30
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T11:00:00Z', '2026-10-25T12:00:00Z', 'A025', 'F095'), opts)[0].status).toBe('active');
+        // Reservation ends before entry
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T08:00:00Z', '2026-10-25T10:30:00Z', 'A025', 'F095'), opts)[0].status).toBe('inactive');
+        // Above cruise
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'F095', 'F245'), opts)[0].status).toBe('inactive');
+    });
+
+    it('treats missing departure time and cruise altitude as conflicting', () => {
+        const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA', [['2026-10-25T06:00:00Z', '2026-10-25T07:00:00Z', 'F095', 'F245']])]]);
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as);
+        expect(c.status).toBe('active');
+        expect(c.enterTime).toBeNull();
+    });
+
+    it('ignores airspace off the route', () => {
+        const as = buildAirspaces([staticFeature('TMA FAR', 'TMA', 'GND', 'UNL', square(30, 60))]);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500 })).toEqual([]);
     });
 });

@@ -18,7 +18,7 @@
         label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
         label small { font-weight: 400; }
 
-        input[type=text], input[type=number], input[type=file] {
+        input[type=text], input[type=number], input[type=file], input[type=datetime-local] {
             width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid #dde1e8; border-radius: 8px;
             font-size: 0.93rem; transition: border-color 0.2s; background: #fafbfc;
         }
@@ -60,6 +60,16 @@
         .totals-row td { font-weight: 700; background: #1e3a5f !important; color: white !important; }
         .totals-row td:not(:first-child) { text-align: right; }
 
+        #airspaceCard table { font-size: 0.84rem; }
+        #airspaceCard td, #airspaceCard th { max-width: none; text-align: left; white-space: nowrap; }
+        #airspaceCard td:last-child { white-space: normal; color: #555; }
+        .as-badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 4px; font-size: 0.72rem;
+                    font-weight: 700; letter-spacing: 0.03em; }
+        .as-red   { background: #fee2e2; color: #b91c1c; }
+        .as-amber { background: #fef3c7; color: #92400e; }
+        .as-note  { font-size: 0.8rem; color: #64748b; margin-top: 0.5rem; }
+        .as-warn  { font-size: 0.82rem; color: #dc2626; margin-bottom: 0.4rem; }
+
         @media print {
             @page { size: A4 landscape; margin: 8mm; }
             body { background: white; }
@@ -83,6 +93,11 @@
             #fuelVorRow { grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem; }
             #fuelVorRow .card { margin-top: 0 !important; }
             #fuelSummary table { width: auto !important; }
+            #airspaceCard { margin-top: 0.25rem !important; }
+            #airspaceCard h3 { font-size: 0.8rem !important; margin-bottom: 0.2rem !important; }
+            #airspaceCard table { font-size: 0.65rem !important; table-layout: auto; }
+            #airspaceCard .as-note, #airspaceCard .as-warn { font-size: 0.6rem; margin: 0.1rem 0; }
+            .as-badge { border: 1px solid currentColor; }
             #legendCard { font-size: 0.5rem !important; margin-top: 0.25rem; }
             #legendCard { font-size: 0.5rem !important; margin-top: 0.5rem; }
             #legendCard h3 { font-size: 0.55rem !important; margin-bottom: 0.25rem; }
@@ -149,6 +164,10 @@
                 <input type="number" id="cruiseAlt" placeholder="e.g. 3500" min="0" step="100">
             </div>
             <div>
+                <label>Departure <small>(UTC, for airspace check)</small></label>
+                <input type="datetime-local" id="departure">
+            </div>
+            <div>
                 <label>Alternate Airport <small>(ICAO, optional)</small></label>
                 <input type="text" id="alternateIcao" placeholder="e.g. EPMO" maxlength="4"
                        style="text-transform:uppercase">
@@ -170,6 +189,7 @@
         <div class="card" style="overflow-x: auto; padding: 0;">
             <table id="planTable"></table>
         </div>
+        <div class="card" id="airspaceCard" style="display:none;margin-top:1rem;overflow-x:auto"></div>
         <div id="fuelVorRow" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;align-items:start">
         <div class="card" id="fuelSummary"></div>
         <div class="card" id="vorSummary" style="display:none;"></div>
@@ -178,7 +198,8 @@
 </div>
 
 <script type="module">
-import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0, r1, r2 } from './js/planner.js';
+import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0, r1, r2,
+         buildAirspaces, findAirspaceCrossings } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', calculate);
@@ -277,6 +298,100 @@ function formatFreq(khz) {
 }
 
 
+// ── Airspace — PANSA AUP/UUP + static airspace, fetched at deploy time ───────
+// (scripts/fetch-airspace.mjs; PANSA sends no CORS headers, so it can't be fetched live)
+const _airspaceCache = {};
+async function loadAirspaceFile(name) {
+    if (!_airspaceCache[name]) {
+        _airspaceCache[name] = fetch(`data/airspace/${name}.json`).then(resp => {
+            if (!resp.ok) throw new Error(`data/airspace/${name}.json: HTTP ${resp.status}`);
+            return resp.json();
+        });
+        _airspaceCache[name].catch(() => delete _airspaceCache[name]);
+    }
+    return _airspaceCache[name];
+}
+
+// PANSA validity strings are UTC, e.g. "2026-10-25 06:00"
+const parseUtc = s => s ? Date.parse(s.replace(' ', 'T') + ':00Z') : NaN;
+const fmtUtc   = d => d ? new Date(d).toISOString().slice(11, 16) : '—';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function checkAirspace(points, legs, cruiseAlt, departure) {
+    const meta = await loadAirspaceFile('meta');
+    // Without a departure time, check against today's plan only
+    const names = departure ? ['aup', 'uup', 'aup-next'] : ['aup', 'uup'];
+    const [staticFeatures, ...layers] = await Promise.all(['static', ...names].map(loadAirspaceFile));
+    const airspaces = buildAirspaces(staticFeatures, layers);
+    const crossings = findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt: cruiseAlt, departure });
+
+    const warnings = [];
+    if (!cruiseAlt) warnings.push('No cruise altitude set — all altitudes are treated as conflicting.');
+    if (!departure) warnings.push('No departure time set — every reservation in today\'s AUP/UUP is treated as active.');
+    else {
+        const totH = legs.reduce((s, l) => s + (isFinite(l.eteH) ? l.eteH : 0), 0);
+        const end  = departure.getTime() + totH * 3600e3;
+        const from = parseUtc(meta.dates?.aup?.[0]);
+        const to   = meta.counts?.['aup-next'] ? parseUtc(meta.dates?.['aup-next']?.[1]) : parseUtc(meta.dates?.aup?.[1]);
+        if (!(departure.getTime() >= from && end <= to))
+            warnings.push(`Flight time is outside the published AUP (${esc(meta.dates?.aup?.[0])} – ${esc(fmtUtc(to))} UTC) — reservations unknown.`);
+    }
+    const ageH = (Date.now() - Date.parse(meta.fetchedAt)) / 3600e3;
+    if (ageH > 2) warnings.push(`Airspace data is ${Math.round(ageH)} h old — check the current AUP/UUP before flight.`);
+    return { crossings, meta, warnings };
+}
+
+function renderAirspace(result, legs, errorMsg = null) {
+    const card = document.getElementById('airspaceCard');
+    const title = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace</h3>`;
+    card.style.display = 'block';
+    if (errorMsg) {
+        card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
+        return;
+    }
+    const { crossings, meta, warnings } = result;
+    const relevant = crossings.filter(c => c.status !== 'inactive');
+    const inactive = crossings.filter(c => c.status === 'inactive');
+    const BADGE = {
+        active:     ['as-red',   'ACTIVE'],
+        prohibited: ['as-red',   'PROHIBITED'],
+        restricted: ['as-red',   'RESTRICTED'],
+        adiz:       ['as-amber', 'ADIZ'],
+        controlled: ['as-amber', 'CONTROLLED'],
+    };
+    const legName = c => c.enterLeg === c.exitLeg
+        ? `${legs[c.enterLeg].from}→${legs[c.enterLeg].to}`
+        : `${legs[c.enterLeg].from}→…→${legs[c.exitLeg].to}`;
+    const limitsOf = c => c.reservations.length
+        ? [...new Set(c.reservations.map(r => `${r.lower}–${r.upper}`))].join(', ')
+        : `${c.lower}–${c.upper}`;
+    const infoOf = c => c.reservations.length
+        ? c.reservations.map(r => [`${fmtUtc(r.start)}–${fmtUtc(r.end)}`, r.unit, r.remarks].filter(Boolean).map(esc).join(' · ')).join('<br>')
+        : c.services.map(sv => esc(`${sv.type} ${sv.frequencies.join(', ')}`)).join('<br>');
+
+    let html = title + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
+    if (relevant.length) {
+        html += `<table><thead><tr><th>Airspace</th><th>Type</th><th>Status</th><th>Limits</th>`
+              + `<th>Leg</th><th>NM</th><th>Time (UTC)</th><th>Reservation / Contact</th></tr></thead><tbody>`;
+        for (const c of relevant) {
+            const [cls, label] = BADGE[c.status];
+            html += `<tr><td><b>${esc(c.designator)}</b></td><td>${esc(c.type)}</td>`
+                  + `<td><span class="as-badge ${cls}">${label}</span></td><td>${esc(limitsOf(c))}</td>`
+                  + `<td>${esc(legName(c))}</td><td>${r1(c.enterNm)}–${r1(c.exitNm)}</td>`
+                  + `<td>${c.enterTime ? `${fmtUtc(c.enterTime)}–${fmtUtc(c.exitTime)}` : '—'}</td>`
+                  + `<td>${infoOf(c)}</td></tr>`;
+        }
+        html += `</tbody></table>`;
+    } else {
+        html += `<p style="font-size:0.88rem">No conflicting airspace found on the route.</p>`;
+    }
+    if (inactive.length)
+        html += `<p class="as-note">Crossed but not reserved at your time/altitude: ${inactive.map(c => esc(c.designator)).join(', ')}</p>`;
+    html += `<p class="as-note">PANSA AUP/UUP, PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC. `
+          + `Planning aid only — check the current AUP/UUP and NOTAMs before flight.</p>`;
+    card.innerHTML = html;
+}
+
 async function dryRun() {
     document.getElementById('windDir').value       = 270;
     document.getElementById('windSpeed').value     = 15;
@@ -289,10 +404,12 @@ async function dryRun() {
     document.getElementById('tgCount').value       = 3;
     document.getElementById('tgCircuitMin').value  = 6;
     document.getElementById('cruiseAlt').value     = 3500;
+    const nextHour = new Date(Math.ceil(Date.now() / 3600e3) * 3600e3);
+    document.getElementById('departure').value     = nextHour.toISOString().slice(0, 16);
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500);
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500, nextHour);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -309,6 +426,8 @@ async function calculate() {
     const tgCount       = parseInt(document.getElementById('tgCount').value)      || 0;
     const tgCircuitMin  = parseFloat(document.getElementById('tgCircuitMin').value) || 6;
     const cruiseAlt     = parseFloat(document.getElementById('cruiseAlt').value) || 0;
+    const departureVal  = document.getElementById('departure').value;
+    const departure     = departureVal ? new Date(departureVal + ':00Z') : null;
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
@@ -316,11 +435,11 @@ async function calculate() {
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt, departure);
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0) {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, departure = null) {
     const btn = document.getElementById('calcBtn');
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
@@ -385,6 +504,15 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
             ? findNearestVor(p.lat, p.lon, vorData, cruiseAlt, declination)
             : null);
         renderResults(legs, points, pointVors, declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo, tgCount, tgCircuitMin, cruiseAlt);
+
+        // Airspace check — isolated so failures don't abort main plan
+        setStatus('Checking airspace…');
+        try {
+            renderAirspace(await checkAirspace(points, legs, cruiseAlt, departure), legs);
+        } catch (e) {
+            renderAirspace(null, legs, e.message);
+        }
+        setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
     } catch (e) {
         err(e.message);
     } finally {
@@ -556,6 +684,16 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>Alternate</b></dt><dd>Fuel from destination to alternate ICAO + one go-around climb</dd>
         <dt><b>Holding</b></dt><dd>Fixed 10-minute holding reserve at cruise consumption</dd>
         <dt><b>Reserve</b></dt><dd>Regulatory final reserve (45 or 60 min at cruise consumption)</dd>
+      </dl>
+    </div>
+    <div>
+      <h4 style="margin:0 0 .5rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#888;">Airspace</h4>
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .75rem;">
+        <dt><b>ACTIVE</b></dt><dd>TRA/TSA/D/R/ATZ reserved in the PANSA AUP/UUP at your cruise altitude while you are inside it</dd>
+        <dt><b>CONTROLLED</b></dt><dd>CTR/TMA/MCTR/MTMA on your route at your altitude — clearance required</dd>
+        <dt><b>PROHIBITED / RESTRICTED</b></dt><dd>Permanent P or R area from the AIP on your route at your altitude</dd>
+        <dt><b>Altitude</b></dt><dd>Checked at cruise; airspace touching departure or destination is checked from the surface up. FL = ft at standard pressure</dd>
+        <dt><b>Time</b></dt><dd>Entry–exit from departure time + ETE. Without a departure time all of today's reservations count</dd>
       </dl>
     </div>
   </div>

@@ -25,8 +25,21 @@ Then open `http://localhost:3000`.
 | Wind Speed | Knots |
 | TAS | True airspeed, knots |
 | Fuel Consumption | US gallons per hour |
+| Cruise Altitude | Feet MSL — used for VOR range and the airspace check |
+| Departure | UTC, optional — used to check AUP reservations against the time you're inside each area |
 
 Magnetic declination is fetched automatically from the [NOAA IGRF API](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml) for the route centroid. Requires internet access.
+
+### Airspace check
+
+The route is checked against Polish airspace published by PANSA:
+
+- **Reservations** (TRA, TSA, D, R, ATZ…) from the current AUP, UUP and next-day AUP — flagged *ACTIVE* when a reservation overlaps your cruise altitude and the time you're inside the area
+- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — flagged when it overlaps your altitude, with ATS frequencies
+
+Airspace touching the departure or destination is checked from the surface up to cruise. Missing altitude or departure time is treated as a possible conflict. It is a planning aid — always check the current AUP/UUP and NOTAMs.
+
+PANSA's API doesn't allow cross-origin requests, so the data is downloaded at deploy time: `.github/workflows/pages.yml` runs `scripts/fetch-airspace.mjs` every 30 minutes and deploys it with the site to `data/airspace/`. GitHub Pages must use **Settings → Pages → Source: GitHub Actions**.
 
 ## Development
 
@@ -34,7 +47,8 @@ Magnetic declination is fetched automatically from the [NOAA IGRF API](https://w
 
 ```
 index.html        # UI — form, rendering, NOAA fetch
-js/planner.js     # Pure logic — GPX parsing, nav math, wind calc
+js/planner.js     # Pure logic — GPX parsing, nav math, wind calc, airspace crossings
+scripts/          # fetch-airspace.mjs — downloads PANSA airspace into data/airspace/
 tests/            # Vitest unit tests
 assets/           # Example GPX and original flight plan template
 ```
@@ -43,6 +57,12 @@ assets/           # Example GPX and original flight plan template
 
 ```
 npm install
+```
+
+To get airspace data locally (git-ignored):
+
+```
+npm run fetch-airspace
 ```
 
 ### Run tests

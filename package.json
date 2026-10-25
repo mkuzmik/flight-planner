@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "serve": "npx serve ."
+    "serve": "npx serve .",
+    "fetch-airspace": "node scripts/fetch-airspace.mjs"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",

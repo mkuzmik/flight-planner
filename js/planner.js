@@ -130,3 +130,197 @@ export function computeFuelSummary({ tripFuel, taxiFuel, climbFuel, fuelGph, res
     const total        = trip + taxi + climbTotal + tgFuel + holdingFuel + reserveFuel + altFuel;
     return { tripFuel: trip, taxiFuel: taxi, climbFuel: climb, climbTotal, tgFuel, tgCount: tgN, tgCircuitMin: tgMin, expectedBurn, holdingFuel, reserveFuel, reserveMin: resMins, alternateFuel: altFuel, total };
 }
+
+// ── Airspace (PANSA AUP/UUP + static airspace GeoJSON) ────────────────────────
+// Altitude limits come as "GND", "UNL", "A061" (6100 ft AMSL) or "F095" (FL95).
+// Flight levels are converted at standard pressure (FL × 100 ft).
+export function parseAltitudeLimit(s) {
+    const v = String(s ?? '').trim().toUpperCase();
+    if (v === 'GND' || v === 'SFC') return 0;
+    if (v === 'UNL') return Infinity;
+    const m = /^([AF])(\d{2,3})$/.exec(v);
+    return m ? parseInt(m[2], 10) * 100 : NaN;
+}
+
+function pointInRing([x, y], ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i], [xj, yj] = ring[j];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+            inside = !inside;
+    }
+    return inside;
+}
+
+// rings: GeoJSON Polygon coordinates — [outer, ...holes], each ring [[lon, lat], ...]
+export function pointInPolygon(pt, rings) {
+    return pointInRing(pt, rings[0]) && !rings.slice(1).some(h => pointInRing(pt, h));
+}
+
+// Parameter t ∈ [0,1] along a→b where it crosses c→d, or null
+function segmentIntersectT(a, b, c, d) {
+    const rx = b[0] - a[0], ry = b[1] - a[1];
+    const sx = d[0] - c[0], sy = d[1] - c[1];
+    const den = rx * sy - ry * sx;
+    if (den === 0) return null;
+    const qx = c[0] - a[0], qy = c[1] - a[1];
+    const t = (qx * sy - qy * sx) / den;
+    const u = (qx * ry - qy * rx) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+}
+
+// Portions of segment a→b inside the polygon, as [[t0, t1], ...] with t ∈ [0,1].
+// Planar in lon/lat — fine for VFR leg lengths.
+export function segmentPolygonIntervals(a, b, rings) {
+    const ts = [0, 1];
+    for (const ring of rings)
+        for (let i = 0; i < ring.length - 1; i++) {
+            const t = segmentIntersectT(a, b, ring[i], ring[i + 1]);
+            if (t !== null) ts.push(t);
+        }
+    ts.sort((x, y) => x - y);
+    const intervals = [];
+    for (let i = 0; i < ts.length - 1; i++) {
+        const t0 = ts[i], t1 = ts[i + 1];
+        if (t1 - t0 < 1e-9) continue;
+        const tm = (t0 + t1) / 2;
+        const mid = [a[0] + (b[0] - a[0]) * tm, a[1] + (b[1] - a[1]) * tm];
+        if (!pointInPolygon(mid, rings)) continue;
+        const last = intervals[intervals.length - 1];
+        if (last && t0 - last[1] < 1e-9) last[1] = t1;
+        else intervals.push([t0, t1]);
+    }
+    return intervals;
+}
+
+function polygonsOf(geometry) {
+    if (geometry?.type === 'Polygon') return [geometry.coordinates];
+    if (geometry?.type === 'MultiPolygon') return geometry.coordinates;
+    return [];
+}
+
+function bboxOf(polygons) {
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const rings of polygons)
+        for (const [x, y] of rings[0]) {
+            b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y);
+            b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y);
+        }
+    return b;
+}
+
+const limits = (lower, upper) => ({
+    lower, upper, lowerFt: parseAltitudeLimit(lower), upperFt: parseAltitudeLimit(upper),
+});
+
+// Normalises PANSA GeoJSON layers into one list of airspaces.
+// Reservation layers (AUP, UUP, next-day AUP) are merged per area and their
+// reservations unioned, so an area reserved in any of them is reported.
+export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
+    const out = [];
+    const seen = new Set();
+    for (const f of staticFeatures) {
+        const polygons = polygonsOf(f.geometry);
+        if (!polygons.length) continue;
+        const p = f.properties;
+        // The static layer repeats identical features (one per activation period)
+        const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(polygons[0][0][0])].join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+            kind: 'static', designator: p.designator, type: p.airspaceElementType,
+            ...limits(p.lowerAltitude, p.upperAltitude),
+            services: p.services ?? [], polygons, bbox: bboxOf(polygons),
+        });
+    }
+    const byKey = new Map();
+    for (const layer of reservationLayers)
+        for (const f of layer) {
+            const polygons = polygonsOf(f.geometry);
+            if (!polygons.length) continue;
+            const key = f.properties.designator + '|' + JSON.stringify(polygons[0][0][0]);
+            let as = byKey.get(key);
+            if (!as) {
+                as = { kind: 'reserved', designator: f.properties.designator, type: f.properties.airspaceElementType,
+                       reservations: [], polygons, bbox: bboxOf(polygons) };
+                byKey.set(key, as);
+                out.push(as);
+            }
+            for (const r of f.properties.airspaceReservations ?? []) {
+                const res = {
+                    start: Date.parse(r.startDate), end: Date.parse(r.endDate),
+                    ...limits(r.lowerAltitude, r.upperAltitude),
+                    unit: r.unit ?? '', remarks: r.remarks ?? '', status: r.reservationStatus ?? '',
+                };
+                const same = as.reservations.find(x => x.start === res.start && x.end === res.end
+                                                    && x.lower === res.lower && x.upper === res.upper);
+                if (!same) as.reservations.push(res);
+                else if (res.status === 'ACTIVATED') same.status = 'ACTIVATED';
+            }
+        }
+    for (const as of out) as.reservations?.sort((x, y) => x.start - y.start);
+    return out;
+}
+
+const STATIC_STATUS = { P: 'prohibited', R: 'restricted', ADIZ: 'adiz' };
+
+// Finds where the route enters each airspace and checks it against the cruise
+// altitude and (if a departure time is given) the time the aircraft is inside.
+// Airspace touching the departure or destination point is checked from the
+// surface up to cruise (climb/descent). Missing altitude or timing is treated
+// as a possible conflict, never as clear.
+export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null } = {}) {
+    const raw = [];
+    let cumNm = 0, cumH = 0;
+    legs.forEach((leg, i) => {
+        const a = [points[i].lon, points[i].lat], b = [points[i + 1].lon, points[i + 1].lat];
+        const lb = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        const eteH = isFinite(leg.eteH) ? leg.eteH : NaN;
+        for (const as of airspaces) {
+            if (as.bbox[0] > lb[2] || as.bbox[2] < lb[0] || as.bbox[1] > lb[3] || as.bbox[3] < lb[1]) continue;
+            for (const rings of as.polygons)
+                for (const [t0, t1] of segmentPolygonIntervals(a, b, rings))
+                    raw.push({ as, enterLeg: i, exitLeg: i,
+                               enterNm: cumNm + t0 * leg.dist, exitNm: cumNm + t1 * leg.dist,
+                               enterH: cumH + t0 * eteH, exitH: cumH + t1 * eteH });
+        }
+        cumNm += leg.dist;
+        cumH += eteH;
+    });
+
+    // Join a crossing that continues across a waypoint into the next leg
+    raw.sort((x, y) => x.enterNm - y.enterNm);
+    const merged = [];
+    for (const c of raw) {
+        const prev = merged.findLast(m => m.as === c.as);
+        if (prev && c.enterNm - prev.exitNm < 1e-6) {
+            prev.exitNm = c.exitNm; prev.exitH = c.exitH; prev.exitLeg = c.exitLeg;
+        } else merged.push({ ...c });
+    }
+
+    const cruise = cruiseAltFt > 0 ? cruiseAltFt : null;
+    const depMs = departure instanceof Date && !isNaN(departure) ? departure.getTime() : null;
+
+    const result = [];
+    for (const c of merged) {
+        const nearEnds = c.enterNm < 1e-6 || cumNm - c.exitNm < 1e-6;
+        const bandLo = nearEnds ? 0 : cruise;
+        const vertHit = (lo, hi) => cruise === null || isNaN(lo) || isNaN(hi) || (lo <= cruise && hi >= bandLo);
+        const enterTime = depMs !== null && isFinite(c.enterH) ? new Date(depMs + c.enterH * 3600e3) : null;
+        const exitTime  = depMs !== null && isFinite(c.exitH)  ? new Date(depMs + c.exitH  * 3600e3) : null;
+        const timeHit = (s, e) => !enterTime || !exitTime || (s < exitTime.getTime() && e > enterTime.getTime());
+        const base = { designator: c.as.designator, type: c.as.type, enterLeg: c.enterLeg, exitLeg: c.exitLeg,
+                       enterNm: c.enterNm, exitNm: c.exitNm, enterTime, exitTime };
+        if (c.as.kind === 'static') {
+            if (!vertHit(c.as.lowerFt, c.as.upperFt)) continue;
+            result.push({ ...base, status: STATIC_STATUS[c.as.type] ?? 'controlled',
+                          lower: c.as.lower, upper: c.as.upper, services: c.as.services, reservations: [] });
+        } else {
+            if (!c.as.reservations.length) continue;
+            const active = c.as.reservations.filter(r => vertHit(r.lowerFt, r.upperFt) && timeHit(r.start, r.end));
+            result.push({ ...base, status: active.length ? 'active' : 'inactive',
+                          reservations: active.length ? active : c.as.reservations, services: [] });
+        }
+    }
+    return result;
+}
