@@ -235,6 +235,26 @@ const limits = (lower, upper) => ({
     lower, upper, lowerFt: parseAltitudeLimit(lower), upperFt: parseAltitudeLimit(upper),
 });
 
+// The static layer holds a copy of every area per AIRAC cycle (startTime–endTime),
+// typically the cycle in force and the next one. Keep the cycle(s) in force at
+// any point of the flight [from, to]; if none covers it (cycle not yet
+// published), fall back to the latest cycle with covered = false.
+export function staticAirspaceInForce(features, from, to) {
+    const t0 = from.getTime(), t1 = to.getTime();
+    const inForce = features.filter(f => {
+        const s = Date.parse(f.properties.startTime), e = Date.parse(f.properties.endTime);
+        return !(s > t1) && !(e <= t0);   // missing dates (NaN) keep the feature
+    });
+    const dated = inForce.filter(f => !isNaN(Date.parse(f.properties.startTime)));
+    if (dated.length || !features.some(f => !isNaN(Date.parse(f.properties.startTime))))
+        return { features: inForce, covered: true };
+    const latest = Math.max(...features.map(f => Date.parse(f.properties.startTime)).filter(isFinite));
+    return {
+        features: features.filter(f => isNaN(Date.parse(f.properties.startTime)) || Date.parse(f.properties.startTime) === latest),
+        covered: false,
+    };
+}
+
 // Normalises PANSA GeoJSON layers into one list of airspaces.
 // Reservation layers (AUP, UUP, next-day AUP) are merged per area and their
 // reservations unioned, so an area reserved in any of them is reported.
@@ -245,7 +265,7 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
         const polygons = polygonsOf(f.geometry);
         if (!polygons.length) continue;
         const p = f.properties;
-        // The static layer repeats identical features (one per activation period)
+        // A flight spanning an AIRAC changeover gets both cycles; drop unchanged repeats
         const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(polygons)].join('|');
         if (seen.has(key)) continue;
         seen.add(key);

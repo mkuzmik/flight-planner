@@ -35,7 +35,7 @@ Magnetic declination is fetched automatically from the [NOAA IGRF API](https://w
 The route is checked against Polish airspace published by PANSA:
 
 - **Reservations** (TRA, TSA, D, R, ATZ…) from the current AUP, UUP and next-day AUP — flagged *ACTIVE* when a reservation overlaps your cruise altitude and the time you're inside the area
-- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — flagged when it overlaps your altitude, with ATS frequencies
+- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — flagged when it overlaps your altitude, with ATS frequencies. PANSA publishes it per AIRAC cycle (usually the cycle in force and the next one); the check uses the cycle in force on the flight date and warns when no published cycle covers it
 
 Airspace touching the departure or destination is checked from the surface up to cruise. Missing altitude or departure time is treated as a possible conflict. It is a planning aid — always check the current AUP/UUP and NOTAMs.
 
