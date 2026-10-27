@@ -696,10 +696,20 @@ describe('findAirspaceCrossings', () => {
         expect(c.exitTime.toISOString()).toBe('2026-10-25T11:30:00.000Z');
     });
 
-    it('skips static airspace above or below the cruise altitude', () => {
+    it('skips static airspace starting above cruise + vertical buffer, keeps airspace below', () => {
         const as = buildAirspaces([staticFeature('TMA HIGH', 'TMA', 'A065', 'F095'),
+                                   staticFeature('TMA NEAR', 'TMA', 'A038', 'F095'),
                                    staticFeature('EPP1', 'P', 'GND', 'A010')]);
-        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500 })).toEqual([]);
+        const names = opts => findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, opts).map(c => c.designator).sort();
+        expect(names({ cruiseAltFt: 3500 })).toEqual(['EPP1']);
+        expect(names({ cruiseAltFt: 3500, verticalBufferFt: 500 })).toEqual(['EPP1', 'TMA NEAR']);
+    });
+
+    it('marks airspace entirely below cruise as below', () => {
+        const as = buildAirspaces([staticFeature('EPP1', 'P', 'GND', 'A010'), staticFeature('TMA', 'TMA', 'A020', 'F095')]);
+        const below = Object.fromEntries(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500 })
+            .map(c => [c.designator, c.belowCruise]));
+        expect(below).toEqual({ EPP1: true, TMA: false });
     });
 
     it('checks airspace at departure/destination from the surface up', () => {
@@ -764,8 +774,15 @@ describe('findAirspaceCrossings', () => {
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T11:00:00Z', '2026-10-25T12:00:00Z', 'A025', 'F095'), opts)[0].status).toBe('active');
         // Reservation ends before entry
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T08:00:00Z', '2026-10-25T10:30:00Z', 'A025', 'F095'), opts)[0].status).toBe('inactive');
-        // Above cruise
-        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'F095', 'F245'), opts)[0].status).toBe('inactive');
+        // Starts above cruise: not reported at all
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'F095', 'F245'), opts)).toEqual([]);
+        // Entirely below cruise: still active, flagged below
+        const [low] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, mk('2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A020'), opts);
+        expect(low).toMatchObject({ status: 'active', belowCruise: true });
+        // Starts just above cruise: reported only within the vertical buffer
+        const justAbove = mk('2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'A038', 'F095');
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, justAbove, opts)).toEqual([]);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, justAbove, { ...opts, verticalBufferFt: 500 })[0].status).toBe('active');
     });
 
     it('treats missing departure time and cruise altitude as conflicting', () => {

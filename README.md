@@ -28,6 +28,7 @@ Then open `http://localhost:3000`.
 | Cruise Altitude | Feet MSL — used for VOR range and the airspace check |
 | Departure | UTC, optional — used to check AUP reservations against the time you're inside each area |
 | Airspace Buffer | NM either side of the route (default 1) — airspace this close to the route is listed too |
+| Vertical Buffer | ft above cruise (default 500) — airspace starting higher than cruise + this is left out; everything below is listed |
 
 Magnetic declination is fetched automatically from the [NOAA IGRF API](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml) for the route centroid. Requires internet access.
 
@@ -35,10 +36,10 @@ Magnetic declination is fetched automatically from the [NOAA IGRF API](https://w
 
 The route is checked against Polish airspace published by PANSA:
 
-- **Reservations** (TRA, TSA, D, R, ATZ…) from the current AUP, UUP and next-day AUP — flagged *ACTIVE* when a reservation overlaps your cruise altitude and the time you're inside the area
-- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — flagged when it overlaps your altitude, with ATS frequencies. PANSA publishes it per AIRAC cycle (usually the cycle in force and the next one); the check uses the cycle in force on the flight date and warns when no published cycle covers it
+- **Reservations** (TRA, TSA, D, R, ATZ…) from the current AUP, UUP and next-day AUP — flagged *ACTIVE* when a reservation is in force while you're in or near the area and starts below cruise + vertical buffer
+- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — listed when it starts below cruise + vertical buffer, with ATS frequencies. PANSA publishes it per AIRAC cycle (usually the cycle in force and the next one); the check uses the cycle in force on the flight date and warns when no published cycle covers it
 
-Airspace within the buffer (default 1 NM) of the route is listed too, with its closest distance when the route doesn't enter it. Each reservation is tagged with the PANSA file it comes from (AUP, UUP, next-day AUP), and the page lists the files used with their validity. Airspace touching the departure or destination is checked from the surface up to cruise. Missing altitude or departure time is treated as a possible conflict. It is a planning aid — always check the current AUP/UUP and NOTAMs.
+Airspace within the buffer (default 1 NM) of the route is listed too, with its closest distance when the route doesn't enter it. Each reservation is tagged with the PANSA file it comes from (AUP, UUP, next-day AUP), and the page lists the files used with their validity. Vertically, airspace starting more than the vertical buffer (default 500 ft) above cruise is left out; everything below cruise is listed and marked "below you" when it ends below cruise. Missing altitude or departure time is treated as a possible conflict. It is a planning aid — always check the current AUP/UUP and NOTAMs.
 
 PANSA's API doesn't allow cross-origin requests, so the data is downloaded at deploy time: `.github/workflows/pages.yml` runs `scripts/fetch-airspace.mjs` every 30 minutes and deploys it with the site to `data/airspace/`. GitHub Pages must use **Settings → Pages → Source: GitHub Actions**.
 

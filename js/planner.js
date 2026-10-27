@@ -399,12 +399,13 @@ const STATIC_STATUS = { P: 'prohibited', R: 'restricted', ADIZ: 'adiz' };
 // and checks it against the cruise altitude and (if a departure time is given)
 // the time the aircraft is inside or within the buffer. distanceNm is the
 // closest approach (0 when the route enters the airspace).
-// Airspace touching the departure or destination point is checked from the
-// surface up to cruise (climb/descent). Missing altitude or timing is treated
-// as a possible conflict, never as clear. With reservationsReliable = false (flight
+// Vertically, airspace (or a reservation) is reported unless its lower limit is
+// more than verticalBufferFt above cruise; everything below cruise is kept and
+// flagged belowCruise. Missing altitude or timing is treated as a possible
+// conflict, never as clear. With reservationsReliable = false (flight
 // outside the published AUP, or stale data) a reserved area with no matching
 // reservation is 'unverified' rather than 'inactive'.
-export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null, reservationsReliable = true, bufferNm = 0 } = {}) {
+export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null, reservationsReliable = true, bufferNm = 0, verticalBufferFt = 0 } = {}) {
     const raw = [];
     let cumNm = 0, cumH = 0;
     legs.forEach((leg, i) => {
@@ -446,11 +447,11 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
     const cruise = cruiseAltFt > 0 ? cruiseAltFt : null;
     const depMs = departure instanceof Date && !isNaN(departure) ? departure.getTime() : null;
 
+    const relevantAlt = lo => cruise === null || isNaN(lo) || lo <= cruise + verticalBufferFt;
+    const below = hi => cruise !== null && hi < cruise;
+
     const result = [];
     for (const c of merged) {
-        const nearEnds = c.enterNm < 1e-6 || cumNm - c.exitNm < 1e-6;
-        const bandLo = nearEnds ? 0 : cruise;
-        const vertHit = (lo, hi) => cruise === null || isNaN(lo) || isNaN(hi) || (lo <= cruise && hi >= bandLo);
         const enterTime = depMs !== null && isFinite(c.enterH) ? new Date(depMs + c.enterH * 3600e3) : null;
         const exitTime  = depMs !== null && isFinite(c.exitH)  ? new Date(depMs + c.exitH  * 3600e3) : null;
         const timeHit = (s, e) => {
@@ -463,14 +464,16 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
                        enterNm: c.enterNm, exitNm: c.exitNm, enterTime, exitTime,
                        distanceNm: c.distanceNm < 1e-6 ? 0 : c.distanceNm };
         if (c.as.kind === 'static') {
-            if (!vertHit(c.as.lowerFt, c.as.upperFt)) continue;
-            result.push({ ...base, status: STATIC_STATUS[c.as.type] ?? 'controlled',
+            if (!relevantAlt(c.as.lowerFt)) continue;
+            result.push({ ...base, status: STATIC_STATUS[c.as.type] ?? 'controlled', belowCruise: below(c.as.upperFt),
                           lower: c.as.lower, upper: c.as.upper, services: c.as.services, reservations: [] });
         } else {
-            if (!c.as.reservations.length) continue;
-            const active = c.as.reservations.filter(r => vertHit(r.lowerFt, r.upperFt) && timeHit(r.start, r.end));
+            const inBand = c.as.reservations.filter(r => relevantAlt(r.lowerFt));
+            if (!inBand.length) continue;
+            const active = inBand.filter(r => timeHit(r.start, r.end));
+            const shown = active.length ? active : inBand;
             result.push({ ...base, status: active.length ? 'active' : reservationsReliable ? 'inactive' : 'unverified',
-                          reservations: active.length ? active : c.as.reservations, services: [] });
+                          belowCruise: shown.every(r => below(r.upperFt)), reservations: shown, services: [] });
         }
     }
     return result;
