@@ -15,6 +15,9 @@
                 box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1.5rem; }
 
         .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+        /* Wide enough to show the validity dates in full */
+        .form-grid .wide { grid-column: span 2; }
+        @media (max-width: 480px) { .form-grid .wide { grid-column: auto; } }
         label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
         label small { font-weight: 400; }
 
@@ -181,15 +184,15 @@
                 <label for="departure">Departure <small>(UTC, optional)</small></label>
                 <input type="datetime-local" id="departure">
             </div>
-            <div>
-                <label for="aupPlan">Reservation Plan <small>(PANSA AUP/UUP)</small></label>
+            <div class="wide">
+                <label for="aupPlan">Reservation Plan <small>(PANSA AUP/UUP, validity in UTC)</small></label>
                 <select id="aupPlan" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
                     <option value="today">Today — AUP + UUP</option>
                     <option value="tomorrow">Tomorrow — next-day AUP</option>
                 </select>
             </div>
-            <div>
-                <label for="airacCycle">AIRAC Cycle <small>(airspace structures)</small></label>
+            <div class="wide">
+                <label for="airacCycle">AIRAC Cycle <small>(airspace structures, validity in UTC)</small></label>
                 <select id="airacCycle" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
                     <option value="">Loading…</option>
                 </select>
@@ -373,21 +376,32 @@ const isoWindow = (s, e) => `${s.slice(0, 16).replace('T', ' ')} – ${e ? e.sli
 const planValidity = (meta, plan) => meta.counts?.[PLANS[plan].window] && meta.dates?.[PLANS[plan].window]
     ? `${meta.dates[PLANS[plan].window][0]} – ${meta.dates[PLANS[plan].window][1]} UTC` : null;
 
+// Compact validity for the selectors: "27 Oct 06:00" (times dropped at midnight, year optional)
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shortUtc = (ms, withYear) => {
+    const d = new Date(ms);
+    const time = d.getUTCHours() || d.getUTCMinutes() ? ' ' + d.toISOString().slice(11, 16) : '';
+    return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${withYear ? ' ' + d.getUTCFullYear() : ''}${time}`;
+};
+const shortWindow = (from, to, withYear) => isFinite(from)
+    ? `${shortUtc(from, withYear)} – ${isFinite(to) ? shortUtc(to, withYear) : '?'}` : '?';
+
 // Fill the plan and AIRAC selectors with what the deployed data holds, validity included
 async function initAirspaceOptions() {
     const planSel = document.getElementById('aupPlan'), cycleSel = document.getElementById('airacCycle');
     try {
         const meta = await loadAirspaceFile('meta');
         for (const opt of planSel.options) {
-            const validity = planValidity(meta, opt.value);
-            opt.textContent = `${PLANS[opt.value].label} · ${validity ?? 'not published yet'}`;
+            const w = PLANS[opt.value].window;
+            opt.textContent = `${PLANS[opt.value].label} · ` + (planValidity(meta, opt.value)
+                ? shortWindow(parseUtc(meta.dates[w][0]), parseUtc(meta.dates[w][1]), false) : 'not published yet');
         }
         const now = Date.now();
         const cycles = meta.airac ?? [];
         cycleSel.innerHTML = cycles.map(c => {
             const inForce = Date.parse(c.start) <= now && (!c.end || now < Date.parse(c.end));
             return `<option value="${esc(c.start)}"${inForce ? ' selected' : ''}>`
-                 + `${esc(isoWindow(c.start, c.end))}${inForce ? ' (in force now)' : ''}</option>`;
+                 + `${esc(shortWindow(Date.parse(c.start), Date.parse(c.end), true))}${inForce ? ' · in force now' : ''}</option>`;
         }).join('') || '<option value="">No AIRAC data</option>';
         if (cycles.length && !cycles.some(c => Date.parse(c.start) <= now && (!c.end || now < Date.parse(c.end))))
             cycleSel.value = cycles[cycles.length - 1].start;
