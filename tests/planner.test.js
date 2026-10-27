@@ -5,7 +5,7 @@ import {
     computeFuelSummary, findNearestVor,
     fmtTime, r0, r1, r2,
     parseAltitudeLimit, pointInPolygon, segmentPolygonIntervals,
-    buildAirspaces, findAirspaceCrossings, airacCycles, staticAirspaceForCycle, crossingsByLeg,
+    buildAirspaces, findAirspaceCrossings, airacCycles, staticAirspaceForCycle, cycleInForce, crossingsByLeg,
 } from '../js/planner.js';
 
 // ── GPX fixtures ──────────────────────────────────────────────────────────────
@@ -601,6 +601,13 @@ describe('AIRAC cycles', () => {
     it('keeps only the chosen cycle', () => {
         expect(staticAirspaceForCycle(features, NEXT[0]).map(f => f.properties.upperAltitude)).toEqual(['A030']);
         expect(staticAirspaceForCycle(features, CURRENT[0])).toHaveLength(2);
+    });
+    it('picks the cycle in force at a time, else the latest', () => {
+        const cycles = airacCycles(features);
+        expect(cycleInForce(cycles, Date.parse('2026-10-27T19:00:00Z')).start).toBe(CURRENT[0]);
+        expect(cycleInForce(cycles, Date.parse('2026-11-01T00:00:00Z')).start).toBe(NEXT[0]);
+        expect(cycleInForce(cycles, Date.parse('2026-12-01T00:00:00Z')).start).toBe(NEXT[0]);
+        expect(cycleInForce([], Date.now())).toBeNull();
     });
     it('keeps features without validity dates whatever the cycle', () => {
         const undated = staticFeature('P1', 'P', 'GND', 'A010');

@@ -324,6 +324,12 @@ export function airacCycles(features) {
     return [...byStart.values()].sort((x, y) => Date.parse(x.start) - Date.parse(y.start));
 }
 
+// The cycle in force at time t (ms), else the latest published one; null if none
+export function cycleInForce(cycles, t) {
+    return cycles.find(c => Date.parse(c.start) <= t && (!c.end || t < Date.parse(c.end)))
+        ?? cycles[cycles.length - 1] ?? null;
+}
+
 // Features of the chosen cycle (identified by its start), plus any without validity dates
 export function staticAirspaceForCycle(features, cycleStart) {
     return features.filter(f => !f.properties.startTime || f.properties.startTime === cycleStart);
