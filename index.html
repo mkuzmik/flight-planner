@@ -60,9 +60,14 @@
         .totals-row td { font-weight: 700; background: #1e3a5f !important; color: white !important; }
         .totals-row td:not(:first-child) { text-align: right; }
 
-        #airspaceCard table { font-size: 0.84rem; }
-        #airspaceCard td, #airspaceCard th { max-width: none; text-align: left; white-space: nowrap; }
-        #airspaceCard td:last-child { white-space: normal; color: #555; }
+        /* Airspace listed under the leg it affects */
+        #planTable.has-airspace tbody tr:nth-child(even) td { background: transparent; }
+        #planTable tr.as-leg-row td { max-width: none; overflow: visible; white-space: normal; text-align: left;
+                                      background: #f8fafc; padding: 0.2rem 0.75rem 0.45rem 2rem; font-size: 0.8rem; }
+        .as-item { padding: 0.12rem 0; color: #1a1a2e; }
+        .as-item .as-where { color: #334155; font-variant-numeric: tabular-nums; }
+        .as-item .as-info { color: #64748b; }
+        .as-item.as-dim { color: #64748b; }
         .as-badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 4px; font-size: 0.72rem;
                     font-weight: 700; letter-spacing: 0.03em; }
         .as-red   { background: #fee2e2; color: #b91c1c; }
@@ -95,7 +100,8 @@
             #fuelSummary table { width: auto !important; }
             #airspaceCard { margin-top: 0.25rem !important; }
             #airspaceCard h3 { font-size: 0.8rem !important; margin-bottom: 0.2rem !important; }
-            #airspaceCard table { font-size: 0.65rem !important; table-layout: auto; }
+            #planTable tr.as-leg-row td { font-size: 0.6rem; padding: 0.05rem 0.3rem 0.15rem 1rem; }
+            .as-item { padding: 0; }
             #airspaceCard .as-note, #airspaceCard .as-warn { font-size: 0.6rem; margin: 0.1rem 0; }
             .as-badge { border: 1px solid currentColor; }
             #legendCard { font-size: 0.5rem !important; margin-top: 0.25rem; }
@@ -207,7 +213,7 @@
 
 <script type="module">
 import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0, r1, r2,
-         buildAirspaces, findAirspaceCrossings, staticAirspaceInForce } from './js/planner.js';
+         buildAirspaces, findAirspaceCrossings, staticAirspaceInForce, crossingsByLeg } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', calculate);
@@ -402,9 +408,6 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         controlled: ['as-amber', 'CONTROLLED'],
         unverified: ['as-amber', 'VERIFY'],
     };
-    const legName = c => c.enterLeg === c.exitLeg
-        ? `${legs[c.enterLeg].from}→${legs[c.enterLeg].to}`
-        : `${legs[c.enterLeg].from}→…→${legs[c.exitLeg].to}`;
     const limitsOf = c => c.reservations.length
         ? [...new Set(c.reservations.map(r => `${r.lower}–${r.upper}`))].join(', ')
         : `${c.lower}–${c.upper}`;
@@ -413,30 +416,44 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
             + [`${fmtUtcOn(r.start, refDay)}–${fmtUtcOn(r.end, refDay)}`, r.unit, r.remarks].filter(Boolean).map(esc).join(' · ')).join('<br>')
         : c.services.map(sv => esc(`${sv.type} ${sv.frequencies.join(', ')}`)).join('<br>');
 
+    // Under each leg of the plan table: the airspace that leg crosses or passes within the buffer of
+    const byLeg = crossingsByLeg(crossings, legs, departure);
+    const table = document.getElementById('planTable');
+    table.querySelectorAll('tr.as-leg-row').forEach(r => r.remove());
+    table.classList.add('has-airspace');
+    byLeg.forEach((pieces, i) => {
+        const shown = pieces.filter(c => c.status !== 'inactive');
+        const free  = [...new Set(pieces.filter(c => c.status === 'inactive').map(c => c.designator))];
+        if (!shown.length && !free.length) return;
+        let items = shown.map(c => {
+            const [cls, label] = BADGE[c.status];
+            const where = [
+                c.fromPrevLeg ? '↑ from previous leg' : null,
+                `${r1(c.legFromNm)}–${r1(c.legToNm)} NM into leg`,
+                c.legEnterTime ? `${fmtUtcOn(c.legEnterTime, refDay)}–${fmtUtcOn(c.legExitTime, refDay)}` : null,
+                c.distanceNm > 0 ? `${r1(c.distanceNm)} NM off route` : null,
+                c.belowCruise ? 'below you' : null,
+                c.toNextLeg ? 'continues ↓' : null,
+            ].filter(Boolean).join(' · ');
+            // Reservation / contact details only where the area first appears
+            const info = c.fromPrevLeg ? '' : infoOf(c).replaceAll('<br>', ' · ');
+            return `<div class="as-item"><span class="as-badge ${cls}">${label}</span> `
+                 + `<b>${esc(c.designator)}</b> ${esc(c.type)} ${esc(limitsOf(c))} · <span class="as-where">${esc(where)}</span>`
+                 + (info ? ` · <span class="as-info">${info}</span>` : '') + `</div>`;
+        }).join('');
+        if (free.length)
+            items += `<div class="as-item as-dim">Not reserved at your time: ${free.map(esc).join(', ')}</div>`;
+        const legRow = table.querySelector(`tr[data-leg="${i}"]`);
+        legRow?.insertAdjacentHTML('afterend', `<tr class="as-leg-row"><td colspan="10">${items}</td></tr>`);
+    });
+
     let html = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace `
              + `<small style="font-weight:400;color:#555">· ${esc(depLabel)} · ${esc(bufferLabel)}</small></h3>` + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
-    if (relevant.length) {
-        html += `<table><thead><tr><th>Airspace</th><th>Type</th><th>Status</th><th>Limits</th>`
-              + `<th>Leg</th><th>NM</th><th>Time (UTC)</th><th>Reservation / Contact</th></tr></thead><tbody>`;
-        for (const c of relevant) {
-            const [cls, label] = BADGE[c.status];
-            html += `<tr><td><b>${esc(c.designator)}</b>`
-                  + (c.distanceNm > 0 ? `<br><small style="color:#555">${r1(c.distanceNm)} NM off route</small>` : '')
-                  + (c.belowCruise ? `<br><small style="color:#555">below you</small>` : '')
-                  + `</td><td>${esc(c.type)}</td>`
-                  + `<td><span class="as-badge ${cls}">${label}</span></td><td>${esc(limitsOf(c))}</td>`
-                  + `<td>${esc(legName(c))}</td><td>${r1(c.enterNm)}–${r1(c.exitNm)}</td>`
-                  + `<td>${c.enterTime ? `${fmtUtcOn(c.enterTime, refDay)}–${fmtUtcOn(c.exitTime, refDay)}` : '—'}</td>`
-                  + `<td>${infoOf(c)}</td></tr>`;
-        }
-        html += `</tbody></table>`;
-    } else {
-        html += reliable
+    html += relevant.length
+        ? `<p style="font-size:0.88rem">${relevant.length} airspace item${relevant.length > 1 ? 's' : ''} listed under the legs above.</p>`
+        : reliable
             ? `<p style="font-size:0.88rem">No conflicting airspace found on the route.</p>`
             : `<p style="font-size:0.88rem">No known conflicts, but reservations could not be fully checked (see warnings) — verify in the current AUP/UUP.</p>`;
-    }
-    if (inactive.length)
-        html += `<p class="as-note">On or near the route but not reserved at your time: ${[...new Set(inactive.map(c => c.designator))].map(esc).join(', ')}</p>`;
     // Which reservation files this check used, with their validity
     const fmtWindow = w => w ? `${w[0]} – ${w[1]} UTC` : '';
     const sourceList = names.map(n => meta.counts?.[n]
@@ -625,11 +642,11 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
     let totDist = 0, totFuel = 0, totTime = 0;
     let hasInvalid = false;
 
-    for (const leg of legs) {
+    for (const [i, leg] of legs.entries()) {
         const ok = isFinite(leg.gs) && leg.gs > 0;
         if (ok) { totFuel += leg.fuel; totTime += leg.eteH; }
         else hasInvalid = true;
-        html += `<tr${ok ? '' : ' class="row-invalid"'}>
+        html += `<tr data-leg="${i}"${ok ? '' : ' class="row-invalid"'}>
             <td>${leg.from}</td>
             <td>${leg.to}</td>
             <td>${r0(leg.tc)}°</td>
@@ -764,10 +781,11 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>CONTROLLED</b></dt><dd>CTR/TMA/MCTR/MTMA on or near your route, starting below cruise + vertical buffer — clearance required</dd>
         <dt><b>PROHIBITED / RESTRICTED</b></dt><dd>Permanent P or R area from the AIP on or near your route, starting below cruise + vertical buffer</dd>
         <dt><b>VERIFY</b></dt><dd>Reservable area on your route that can't be confirmed free — flight outside the published AUP or data too old</dd>
-        <dt><b>Buffer</b></dt><dd>Airspace within this distance either side of the route is listed (default 1 NM); "NM off route" is its closest approach when the route doesn't enter it, and NM/Time give the stretch of route within the buffer</dd>
+        <dt><b>Buffer</b></dt><dd>Airspace within this distance either side of the route is listed (default 1 NM); "NM off route" is its closest approach when the route doesn't enter it, and "NM into leg" / time give the stretch of that leg within the buffer</dd>
         <dt><b>[AUP] [UUP]</b></dt><dd>Where a reservation comes from: AUP = the day's Airspace Use Plan, UUP = its intraday update, next-day AUP = tomorrow's plan</dd>
         <dt><b>Altitude</b></dt><dd>Airspace starting more than the vertical buffer (default 500 ft) above cruise is left out; everything below is listed ("below you" when it ends below cruise). FL = ft at standard pressure</dd>
-        <dt><b>Time</b></dt><dd>Entry–exit from departure time + ETE. Without a departure time all of today's reservations count</dd>
+        <dt><b>Time</b></dt><dd>Entry–exit from departure time + leg ETEs. Without a departure time all of today's reservations count</dd>
+        <dt><b>↑ / ↓</b></dt><dd>Airspace continuing from the previous leg / into the next one; its reservation or frequencies are shown where it first appears</dd>
       </dl>
     </div>
   </div>

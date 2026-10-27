@@ -478,3 +478,28 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
     }
     return result;
 }
+
+// Splits route-level crossings into the part on each leg, for showing airspace
+// under the leg it affects. legFromNm/legToNm are NM into the leg; times use the
+// leg's own ETE (null without a departure time or a valid ETE).
+export function crossingsByLeg(crossings, legs, departure = null) {
+    const depMs = departure instanceof Date && !isNaN(departure) ? departure.getTime() : null;
+    let startNm = 0, startH = 0;
+    return legs.map((leg, i) => {
+        const legStartNm = startNm, legStartH = startH;
+        startNm += leg.dist;
+        startH += isFinite(leg.eteH) ? leg.eteH : NaN;
+        const timeAt = nm => depMs !== null && isFinite(legStartH) && isFinite(leg.eteH)
+            ? new Date(depMs + (legStartH + (leg.dist ? (nm / leg.dist) * leg.eteH : 0)) * 3600e3)
+            : null;
+        return crossings
+            .filter(c => c.enterLeg <= i && c.exitLeg >= i)
+            .map(c => {
+                const legFromNm = Math.max(0, c.enterNm - legStartNm);
+                const legToNm = Math.min(leg.dist, c.exitNm - legStartNm);
+                return { ...c, legFromNm, legToNm,
+                         legEnterTime: timeAt(legFromNm), legExitTime: timeAt(legToNm),
+                         fromPrevLeg: c.enterLeg < i, toNextLeg: c.exitLeg > i };
+            });
+    });
+}

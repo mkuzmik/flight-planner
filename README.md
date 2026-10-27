@@ -34,7 +34,7 @@ Magnetic declination is fetched automatically from the [NOAA IGRF API](https://w
 
 ### Airspace check
 
-The route is checked against Polish airspace published by PANSA:
+The route is checked against Polish airspace published by PANSA. Results appear under each leg of the plan table, with warnings and the data sources below it:
 
 - **Reservations** (TRA, TSA, D, R, ATZ…) from the current AUP, UUP and next-day AUP — flagged *ACTIVE* when a reservation is in force while you're in or near the area and starts below cruise + vertical buffer
 - **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — listed when it starts below cruise + vertical buffer, with ATS frequencies. PANSA publishes it per AIRAC cycle (usually the cycle in force and the next one); the check uses the cycle in force on the flight date and warns when no published cycle covers it

@@ -5,7 +5,7 @@ import {
     computeFuelSummary, findNearestVor,
     fmtTime, r0, r1, r2,
     parseAltitudeLimit, pointInPolygon, segmentPolygonIntervals,
-    buildAirspaces, findAirspaceCrossings, staticAirspaceInForce,
+    buildAirspaces, findAirspaceCrossings, staticAirspaceInForce, crossingsByLeg,
 } from '../js/planner.js';
 
 // ── GPX fixtures ──────────────────────────────────────────────────────────────
@@ -811,5 +811,36 @@ describe('findAirspaceCrossings', () => {
     it('ignores airspace off the route', () => {
         const as = buildAirspaces([staticFeature('TMA FAR', 'TMA', 'GND', 'UNL', square(30, 60))]);
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500 })).toEqual([]);
+    });
+});
+
+describe('crossingsByLeg', () => {
+    const DEP = new Date('2026-10-25T10:00:00Z');
+    // Two legs of 40 NM, 1 h each; crossing from 20 NM (leg 0) to 60 NM (leg 1)
+    const crossing = { designator: 'TMA X', enterLeg: 0, exitLeg: 1, enterNm: 20, exitNm: 60,
+                       enterTime: new Date('2026-10-25T10:30:00Z'), exitTime: new Date('2026-10-25T11:30:00Z') };
+
+    it('splits a crossing into the part on each leg, with leg-relative NM and times', () => {
+        const [leg0, leg1] = crossingsByLeg([crossing], ROUTE_LEGS, DEP);
+        expect(leg0).toHaveLength(1);
+        expect(leg0[0]).toMatchObject({ designator: 'TMA X', legFromNm: 20, legToNm: 40, fromPrevLeg: false, toNextLeg: true });
+        expect(leg0[0].legEnterTime.toISOString()).toBe('2026-10-25T10:30:00.000Z');
+        expect(leg0[0].legExitTime.toISOString()).toBe('2026-10-25T11:00:00.000Z');
+        expect(leg1[0]).toMatchObject({ legFromNm: 0, legToNm: 20, fromPrevLeg: true, toNextLeg: false });
+        expect(leg1[0].legEnterTime.toISOString()).toBe('2026-10-25T11:00:00.000Z');
+        expect(leg1[0].legExitTime.toISOString()).toBe('2026-10-25T11:30:00.000Z');
+    });
+    it('uses each leg\'s own ETE for times', () => {
+        const legs = [{ dist: 40, eteH: 1 }, { dist: 40, eteH: 0.5 }];
+        const [, leg1] = crossingsByLeg([crossing], legs, DEP);
+        expect(leg1[0].legExitTime.toISOString()).toBe('2026-10-25T11:15:00.000Z');
+    });
+    it('leaves times empty without a departure time', () => {
+        const [leg0] = crossingsByLeg([crossing], ROUTE_LEGS, null);
+        expect(leg0[0].legEnterTime).toBeNull();
+    });
+    it('returns an empty list for legs with no airspace', () => {
+        const only1 = { ...crossing, enterLeg: 1, enterNm: 50 };
+        expect(crossingsByLeg([only1], ROUTE_LEGS, DEP)[0]).toEqual([]);
     });
 });
