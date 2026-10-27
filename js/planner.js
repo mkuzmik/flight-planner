@@ -400,7 +400,8 @@ const STATIC_STATUS = { P: 'prohibited', R: 'restricted', ADIZ: 'adiz' };
 // the time the aircraft is inside or within the buffer. distanceNm is the
 // closest approach (0 when the route enters the airspace).
 // Vertically, airspace (or a reservation) is reported unless its lower limit is
-// more than verticalBufferFt above cruise; everything below cruise is kept and
+// more than verticalBufferFt above cruise (a reserved area is kept as 'unverified'
+// instead when reservations are unreliable); everything below cruise is kept and
 // flagged belowCruise. Missing altitude or timing is treated as a possible
 // conflict, never as clear. With reservationsReliable = false (flight
 // outside the published AUP, or stale data) a reserved area with no matching
@@ -439,7 +440,10 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
     for (const c of raw) {
         const prev = merged.findLast(m => m.as === c.as);
         if (prev && c.enterNm - prev.exitNm < 1e-6) {
-            if (c.exitNm > prev.exitNm) { prev.exitNm = c.exitNm; prev.exitH = c.exitH; prev.exitLeg = c.exitLeg; }
+            // A later leg ending at the same point (e.g. a contact at a waypoint) still extends the exit leg
+            if (c.exitNm > prev.exitNm || (c.exitNm > prev.exitNm - 1e-6 && c.exitLeg > prev.exitLeg)) {
+                prev.exitNm = Math.max(prev.exitNm, c.exitNm); prev.exitH = c.exitH; prev.exitLeg = c.exitLeg;
+            }
             prev.distanceNm = Math.min(prev.distanceNm, c.distanceNm);
         } else merged.push({ ...c });
     }
@@ -469,7 +473,12 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
                           lower: c.as.lower, upper: c.as.upper, services: c.as.services, reservations: [] });
         } else {
             const inBand = c.as.reservations.filter(r => relevantAlt(r.lowerFt));
-            if (!inBand.length) continue;
+            if (!inBand.length) {
+                // Unreliable data can't show the area is irrelevant at your altitude
+                if (!reservationsReliable)
+                    result.push({ ...base, status: 'unverified', belowCruise: false, reservations: c.as.reservations, services: [] });
+                continue;
+            }
             const active = inBand.filter(r => timeHit(r.start, r.end));
             const shown = active.length ? active : inBand;
             result.push({ ...base, status: active.length ? 'active' : reservationsReliable ? 'inactive' : 'unverified',

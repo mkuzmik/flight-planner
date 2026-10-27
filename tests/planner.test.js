@@ -794,6 +794,23 @@ describe('findAirspaceCrossings', () => {
         }
     });
 
+    it('keeps a reserved area as VERIFY when reservations are unreliable, whatever their limits', () => {
+        const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA',
+            [['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'F225', 'F315']])]]);
+        const opts = { cruiseAltFt: 3500, departure: DEP, verticalBufferFt: 500 };
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, opts)).toEqual([]);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { ...opts, reservationsReliable: false })[0].status).toBe('unverified');
+    });
+
+    it('shows a boundary contact at a waypoint under both legs that meet there', () => {
+        // Waypoint B sits on BOX's north edge; both legs stay outside
+        const pts = [{ name: 'A', lat: 53.5, lon: 21.2 }, { name: 'B', lat: 53, lon: 21.5 }, { name: 'C', lat: 53.5, lon: 21.8 }];
+        const legs = [{ dist: 30, eteH: 0.5 }, { dist: 30, eteH: 0.5 }];
+        const as = buildAirspaces([staticFeature('CTR X', 'CTR', 'GND', 'A020')]);
+        const crossings = findAirspaceCrossings(pts, legs, as, { cruiseAltFt: 3500 });
+        expect(crossingsByLeg(crossings, legs).map(l => l.length)).toEqual([1, 1]);
+    });
+
     it('treats missing departure time and cruise altitude as conflicting', () => {
         const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA', [['2026-10-25T06:00:00Z', '2026-10-25T07:00:00Z', 'F095', 'F245']])]]);
         const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as);

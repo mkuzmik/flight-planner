@@ -388,7 +388,9 @@ const shortWindow = (from, to, withYear) => isFinite(from)
 
 // Fill the plan and AIRAC selectors from the data's metadata, validity included,
 // keeping the current choices where they're still available (refreshed on every check)
+let optionsVersion = 0;   // bumped on every fill, so a late page-load fill can't undo a newer one
 function fillAirspaceOptions(meta) {
+    optionsVersion++;
     const planSel = document.getElementById('aupPlan'), cycleSel = document.getElementById('airacCycle');
     for (const opt of planSel.options) {
         const w = PLANS[opt.value].window;
@@ -405,11 +407,12 @@ function fillAirspaceOptions(meta) {
 }
 
 async function initAirspaceOptions() {
-    try {
-        fillAirspaceOptions(await loadAirspaceFile('meta'));
-    } catch {
-        document.getElementById('airacCycle').innerHTML = '<option value="">Airspace data unavailable</option>';
-    }
+    const version = optionsVersion;
+    let meta = null;
+    try { meta = await loadAirspaceFile('meta'); } catch { /* shown below */ }
+    if (version !== optionsVersion) return;   // a calculation already filled them with fresher data
+    if (meta) fillAirspaceOptions(meta);
+    else document.getElementById('airacCycle').innerHTML = '<option value="">Airspace data unavailable</option>';
 }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
