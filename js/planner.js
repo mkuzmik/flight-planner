@@ -189,10 +189,12 @@ function segmentIntersectTs(a, b, c, d) {
     return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [t] : [];
 }
 
-// Portions of segment a→b inside the polygon, as [[t0, t1], ...] with t ∈ [0,1].
-// A segment that only touches the boundary (e.g. leaves from a point on it)
-// gets a zero-length [t, t] contact. Planar in lon/lat — fine for VFR leg lengths.
-export function segmentPolygonIntervals(a, b, rings) {
+// Portions of segment a→b inside the polygon, or within bufferNm of it, as
+// [[t0, t1], ...] with t ∈ [0,1]. A segment that only touches the boundary (or
+// the edge of the buffer) gets a zero-length [t, t] contact. Planar in lon/lat —
+// fine for VFR leg lengths.
+export function segmentPolygonIntervals(a, b, rings, bufferNm = 0) {
+    if (bufferNm > 0) return bufferedIntervals(a, b, rings, bufferNm);
     const ts = [0, 1];
     for (const ring of rings)
         for (let i = 0; i < ring.length - 1; i++)
@@ -213,6 +215,84 @@ export function segmentPolygonIntervals(a, b, rings) {
         if (pointInPolygon(at(t), rings)) intervals.push([t, t]);
     }
     return intervals.sort((x, y) => x[0] - y[0]);
+}
+
+// Flat projection to NM around a reference latitude; linear, so t along a
+// segment and inside/outside are the same as in lon/lat
+const nmProjection = lat0 => {
+    const k = 60 * Math.cos(toRad(lat0));
+    return ([lon, lat]) => [lon * k, lat * 60];
+};
+
+function pointSegmentDist([px, py], [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+}
+
+function pointPolygonDist(p, rings) {
+    if (pointInPolygon(p, rings)) return 0;
+    let d = Infinity;
+    for (const ring of rings)
+        for (let i = 1; i < ring.length; i++) d = Math.min(d, pointSegmentDist(p, ring[i - 1], ring[i]));
+    return d;
+}
+
+// Points along a→b (projected) where the distance to the polygon can be
+// smallest: the ends, the boundary crossings, and every vertex's foot point
+function closestCandidates(a, b, rings) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+    const ts = [0, 1];
+    for (const ring of rings)
+        for (let i = 0; i < ring.length - 1; i++) {
+            ts.push(...segmentIntersectTs(a, b, ring[i], ring[i + 1]));
+            if (l2) ts.push(Math.max(0, Math.min(1, ((ring[i][0] - a[0]) * dx + (ring[i][1] - a[1]) * dy) / l2)));
+        }
+    return ts;
+}
+
+const SAMPLE_NM = 0.1;
+
+function bufferedIntervals(a, b, rings, bufferNm) {
+    const proj = nmProjection((a[1] + b[1]) / 2);
+    const A = proj(a), B = proj(b), R = rings.map(r => r.map(proj));
+    const at = t => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+    const within = t => pointPolygonDist(at(t), R) <= bufferNm;
+    // Boundary of the within-buffer stretch between an inside and an outside t
+    const edge = (tIn, tOut) => {
+        for (let i = 0; i < 40; i++) { const m = (tIn + tOut) / 2; if (within(m)) tIn = m; else tOut = m; }
+        return tIn;
+    };
+    const n = Math.max(1, Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / SAMPLE_NM));
+    const intervals = [];
+    let start = within(0) ? 0 : null;
+    for (let i = 1; i <= n; i++) {
+        const t0 = (i - 1) / n, t1 = i / n, inside = within(t1);
+        if (inside && start === null) start = edge(t1, t0);
+        if (!inside && start !== null) { intervals.push([start, edge(t0, t1)]); start = null; }
+    }
+    if (start !== null) intervals.push([start, 1]);
+    // An approach narrower than the sampling step: grow it from the closest point
+    for (const t of closestCandidates(A, B, R)) {
+        if (!within(t) || intervals.some(([s, e]) => t >= s - 1e-9 && t <= e + 1e-9)) continue;
+        const k = Math.floor(t * n);
+        intervals.push([edge(t, k / n), edge(t, Math.min(1, (k + 1) / n))]);
+    }
+    intervals.sort((x, y) => x[0] - y[0]);
+    return intervals.reduce((out, iv) => {
+        const last = out[out.length - 1];
+        if (last && iv[0] - last[1] < 1e-9) last[1] = Math.max(last[1], iv[1]);
+        else out.push(iv);
+        return out;
+    }, []);
+}
+
+// Closest approach of segment a→b to the polygon, in NM
+function segmentPolygonDistanceNm(a, b, rings) {
+    const proj = nmProjection((a[1] + b[1]) / 2);
+    const A = proj(a), B = proj(b), R = rings.map(r => r.map(proj));
+    return Math.min(...closestCandidates(A, B, R).map(t =>
+        pointPolygonDist([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t], R)));
 }
 
 function polygonsOf(geometry) {
@@ -315,27 +395,37 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
 
 const STATIC_STATUS = { P: 'prohibited', R: 'restricted', ADIZ: 'adiz' };
 
-// Finds where the route enters each airspace and checks it against the cruise
-// altitude and (if a departure time is given) the time the aircraft is inside.
+// Finds where the route enters each airspace — or comes within bufferNm of it —
+// and checks it against the cruise altitude and (if a departure time is given)
+// the time the aircraft is inside or within the buffer. distanceNm is the
+// closest approach (0 when the route enters the airspace).
 // Airspace touching the departure or destination point is checked from the
 // surface up to cruise (climb/descent). Missing altitude or timing is treated
 // as a possible conflict, never as clear. With reservationsReliable = false (flight
 // outside the published AUP, or stale data) a reserved area with no matching
 // reservation is 'unverified' rather than 'inactive'.
-export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null, reservationsReliable = true } = {}) {
+export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0, departure = null, reservationsReliable = true, bufferNm = 0 } = {}) {
     const raw = [];
     let cumNm = 0, cumH = 0;
     legs.forEach((leg, i) => {
         const a = [points[i].lon, points[i].lat], b = [points[i + 1].lon, points[i + 1].lat];
-        const lb = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        // Leg bounding box grown by the buffer (in degrees, at the leg's highest latitude)
+        const padLat = bufferNm / 60;
+        const padLon = bufferNm / (60 * Math.cos(toRad(Math.min(89, Math.max(Math.abs(a[1]), Math.abs(b[1])) + padLat))));
+        const lb = [Math.min(a[0], b[0]) - padLon, Math.min(a[1], b[1]) - padLat,
+                    Math.max(a[0], b[0]) + padLon, Math.max(a[1], b[1]) + padLat];
         const eteH = isFinite(leg.eteH) ? leg.eteH : NaN;
         for (const as of airspaces) {
             if (as.bbox[0] > lb[2] || as.bbox[2] < lb[0] || as.bbox[1] > lb[3] || as.bbox[3] < lb[1]) continue;
-            for (const rings of as.polygons)
-                for (const [t0, t1] of segmentPolygonIntervals(a, b, rings))
-                    raw.push({ as, enterLeg: i, exitLeg: i,
+            for (const rings of as.polygons) {
+                const intervals = segmentPolygonIntervals(a, b, rings, bufferNm);
+                if (!intervals.length) continue;
+                const distanceNm = bufferNm > 0 ? segmentPolygonDistanceNm(a, b, rings) : 0;
+                for (const [t0, t1] of intervals)
+                    raw.push({ as, enterLeg: i, exitLeg: i, distanceNm,
                                enterNm: cumNm + t0 * leg.dist, exitNm: cumNm + t1 * leg.dist,
                                enterH: cumH + t0 * eteH, exitH: cumH + t1 * eteH });
+            }
         }
         cumNm += leg.dist;
         cumH += eteH;
@@ -349,6 +439,7 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
         const prev = merged.findLast(m => m.as === c.as);
         if (prev && c.enterNm - prev.exitNm < 1e-6) {
             if (c.exitNm > prev.exitNm) { prev.exitNm = c.exitNm; prev.exitH = c.exitH; prev.exitLeg = c.exitLeg; }
+            prev.distanceNm = Math.min(prev.distanceNm, c.distanceNm);
         } else merged.push({ ...c });
     }
 
@@ -369,7 +460,8 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
             return t0 === t1 ? s <= t0 && e >= t0 : s < t1 && e > t0;
         };
         const base = { designator: c.as.designator, type: c.as.type, enterLeg: c.enterLeg, exitLeg: c.exitLeg,
-                       enterNm: c.enterNm, exitNm: c.exitNm, enterTime, exitTime };
+                       enterNm: c.enterNm, exitNm: c.exitNm, enterTime, exitTime,
+                       distanceNm: c.distanceNm < 1e-6 ? 0 : c.distanceNm };
         if (c.as.kind === 'static') {
             if (!vertHit(c.as.lowerFt, c.as.upperFt)) continue;
             result.push({ ...base, status: STATIC_STATUS[c.as.type] ?? 'controlled',

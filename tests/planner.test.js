@@ -559,6 +559,28 @@ describe('segmentPolygonIntervals', () => {
         expect(iv[0]).toBeCloseTo(0.5);
         expect(iv[1]).toBeCloseTo(0.5);
     });
+    it('includes the stretch within the buffer of a polygon the leg does not enter', () => {
+        // 0.01° lat ≈ 0.6 NM north of BOX's north edge
+        expect(segmentPolygonIntervals([21.2, 53.01], [21.8, 53.01], BOX, 1)).toEqual([[0, 1]]);
+        expect(segmentPolygonIntervals([21.2, 53.01], [21.8, 53.01], BOX, 0.5)).toEqual([]);
+    });
+    it('widens a crossing by the buffer on both sides', () => {
+        // Leg along lat 52.5 from lon 20 to 23; BOX spans lon 21–22, 1 NM ≈ 0.0274° lon at 52.5°
+        const [[t0, t1]] = segmentPolygonIntervals([20, 52.5], [23, 52.5], BOX, 1);
+        const nmPerT = 3 * 60 * Math.cos(52.5 * Math.PI / 180);
+        expect((1 / 3 - t0) * nmPerT).toBeCloseTo(1, 1);
+        expect((t1 - 2 / 3) * nmPerT).toBeCloseTo(1, 1);
+    });
+    it('catches a corner that comes just inside the buffer', () => {
+        // Triangle whose tip is 0.999 NM north of a leg along lat 52.5: only ~0.09 NM
+        // of the leg is within 1 NM, shorter than any sampling step
+        const tip = 52.5 + 0.999 / 60;
+        const triangle = [[[21.5, tip], [21.6, tip + 0.1], [21.4, tip + 0.1], [21.5, tip]]];
+        const ivs = segmentPolygonIntervals([21, 52.5], [22, 52.5], triangle, 1);
+        expect(ivs).toHaveLength(1);
+        expect(ivs[0][0]).toBeCloseTo(0.5, 2);
+        expect(segmentPolygonIntervals([21, 52.5], [22, 52.5], triangle, 0.99)).toEqual([]);
+    });
     it('returns two intervals for a concave polygon entered twice', () => {
         // U-shape open to the north: route along lat 52.8 crosses both arms
         const U = [[[21, 52], [22, 52], [22, 53], [21.7, 53], [21.7, 52.3], [21.3, 52.3], [21.3, 53], [21, 53], [21, 52]]];
@@ -751,6 +773,22 @@ describe('findAirspaceCrossings', () => {
         const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as);
         expect(c.status).toBe('active');
         expect(c.enterTime).toBeNull();
+    });
+
+    it('reports airspace within the buffer with its distance from the route', () => {
+        // Square 0.6 NM north of the route (route along lat 52.5, square from 52.51)
+        const near = staticFeature('TMA NEAR', 'TMA', 'GND', 'F095', square(21.2, 52.51, 0.2));
+        const as = buildAirspaces([near]);
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, bufferNm: 1 });
+        expect(c.designator).toBe('TMA NEAR');
+        expect(c.distanceNm).toBeCloseTo(0.6, 1);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, bufferNm: 0.5 })).toEqual([]);
+    });
+
+    it('gives distance 0 for airspace the route enters', () => {
+        const as = buildAirspaces([staticFeature('TMA EPXX', 'TMA', 'A020', 'F095')]);
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, bufferNm: 1 });
+        expect(c.distanceNm).toBe(0);
     });
 
     it('ignores airspace off the route', () => {

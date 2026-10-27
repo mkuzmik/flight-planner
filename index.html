@@ -164,6 +164,10 @@
                 <input type="number" id="cruiseAlt" placeholder="e.g. 3500" min="0" step="100">
             </div>
             <div>
+                <label for="bufferNm">Airspace Buffer <small>(NM either side of route)</small></label>
+                <input type="number" id="bufferNm" placeholder="1" min="0" step="0.5" value="1">
+            </div>
+            <div>
                 <label for="departure">Departure <small>(UTC, for airspace check)</small></label>
                 <input type="datetime-local" id="departure">
             </div>
@@ -321,7 +325,7 @@ const fmtUtcOn = (d, ref) => {
 const LAYER_LABELS = { 'aup': 'AUP', 'uup': 'UUP', 'aup-next': 'next-day AUP' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-async function checkAirspace(points, legs, cruiseAlt, departure) {
+async function checkAirspace(points, legs, cruiseAlt, departure, bufferNm) {
     const meta = await loadAirspaceFile('meta');
     // Without a departure time, check against today's plan only
     const names = departure ? ['aup', 'uup', 'aup-next'] : ['aup', 'uup'];
@@ -360,8 +364,8 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
         warnings.push(`Airspace data is ${isFinite(ageH) ? Math.round(ageH) + ' h old' : 'of unknown age'} — check the current AUP/UUP before flight.`);
     }
     const crossings = findAirspaceCrossings(points, legs, airspaces,
-                                            { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable });
-    return { crossings, meta, warnings, reliable, departure, cycles, names };
+                                            { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable, bufferNm });
+    return { crossings, meta, warnings, reliable, departure, cycles, names, bufferNm };
 }
 
 function renderAirspace(result, legs, errorMsg = null, pending = false) {
@@ -376,11 +380,12 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
         return;
     }
-    const { crossings, meta, warnings, reliable, departure, cycles, names } = result;
+    const { crossings, meta, warnings, reliable, departure, cycles, names, bufferNm } = result;
     const refDay = departure ?? Date.now();
     const depLabel = departure
         ? `departure ${departure.toISOString().slice(0, 16).replace('T', ' ')} UTC`
         : `no departure time — today's plan`;
+    const bufferLabel = bufferNm > 0 ? `within ${bufferNm} NM of the route` : 'on the route line only (no buffer)';
     const relevant = crossings.filter(c => c.status !== 'inactive');
     const inactive = crossings.filter(c => c.status === 'inactive');
     const BADGE = {
@@ -403,13 +408,15 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         : c.services.map(sv => esc(`${sv.type} ${sv.frequencies.join(', ')}`)).join('<br>');
 
     let html = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace `
-             + `<small style="font-weight:400;color:#555">· ${esc(depLabel)}</small></h3>` + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
+             + `<small style="font-weight:400;color:#555">· ${esc(depLabel)} · ${esc(bufferLabel)}</small></h3>` + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
     if (relevant.length) {
         html += `<table><thead><tr><th>Airspace</th><th>Type</th><th>Status</th><th>Limits</th>`
               + `<th>Leg</th><th>NM</th><th>Time (UTC)</th><th>Reservation / Contact</th></tr></thead><tbody>`;
         for (const c of relevant) {
             const [cls, label] = BADGE[c.status];
-            html += `<tr><td><b>${esc(c.designator)}</b></td><td>${esc(c.type)}</td>`
+            html += `<tr><td><b>${esc(c.designator)}</b>`
+                  + (c.distanceNm > 0 ? `<br><small style="color:#555">${r1(c.distanceNm)} NM off route</small>` : '')
+                  + `</td><td>${esc(c.type)}</td>`
                   + `<td><span class="as-badge ${cls}">${label}</span></td><td>${esc(limitsOf(c))}</td>`
                   + `<td>${esc(legName(c))}</td><td>${r1(c.enterNm)}–${r1(c.exitNm)}</td>`
                   + `<td>${c.enterTime ? `${fmtUtcOn(c.enterTime, refDay)}–${fmtUtcOn(c.exitTime, refDay)}` : '—'}</td>`
@@ -422,7 +429,7 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
             : `<p style="font-size:0.88rem">No known conflicts, but reservations could not be fully checked (see warnings) — verify in the current AUP/UUP.</p>`;
     }
     if (inactive.length)
-        html += `<p class="as-note">Crossed but not reserved at your time/altitude: ${inactive.map(c => esc(c.designator)).join(', ')}</p>`;
+        html += `<p class="as-note">On or near the route but not reserved at your time/altitude: ${[...new Set(inactive.map(c => c.designator))].map(esc).join(', ')}</p>`;
     // Which reservation files this check used, with their validity
     const fmtWindow = w => w ? `${w[0]} – ${w[1]} UTC` : '';
     const sourceList = names.map(n => meta.counts?.[n]
@@ -449,10 +456,11 @@ async function dryRun() {
     document.getElementById('cruiseAlt').value     = 3500;
     const nextHour = new Date(Math.ceil(Date.now() / 3600e3) * 3600e3);
     document.getElementById('departure').value     = nextHour.toISOString().slice(0, 16);
+    document.getElementById('bufferNm').value      = 1;
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500, nextHour);
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500, nextHour, 1);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -471,20 +479,23 @@ async function calculate() {
     const cruiseAlt     = parseFloat(document.getElementById('cruiseAlt').value) || 0;
     const departureVal  = document.getElementById('departure').value;
     const departure     = departureVal ? new Date(departureVal + ':00Z') : null;
+    const bufferVal     = document.getElementById('bufferNm').value.trim();
+    const bufferNm      = bufferVal === '' ? 1 : parseFloat(bufferVal);
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
     if (isNaN(windSpeed) || windSpeed < 0)              return err('Wind speed must be ≥ 0.');
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
+    if (isNaN(bufferNm) || bufferNm < 0)                return err('Airspace buffer must be ≥ 0 NM.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt, departure);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt, departure, bufferNm);
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
 // One calculation at a time, so a slower earlier run can't overwrite a newer result
 let running = false;
-async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, departure = null) {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, departure = null, bufferNm = 1) {
     if (running) return;
     running = true;
     const btns = ['calcBtn', 'dryRunBtn'].map(id => document.getElementById(id));
@@ -556,7 +567,7 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
         setStatus('Checking airspace…');
         renderAirspace(null, legs, null, true);
         try {
-            renderAirspace(await checkAirspace(points, legs, cruiseAlt, departure), legs);
+            renderAirspace(await checkAirspace(points, legs, cruiseAlt, departure, bufferNm), legs);
         } catch (e) {
             renderAirspace(null, legs, e.message);
         }
@@ -742,6 +753,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>CONTROLLED</b></dt><dd>CTR/TMA/MCTR/MTMA on your route at your altitude — clearance required</dd>
         <dt><b>PROHIBITED / RESTRICTED</b></dt><dd>Permanent P or R area from the AIP on your route at your altitude</dd>
         <dt><b>VERIFY</b></dt><dd>Reservable area on your route that can't be confirmed free — flight outside the published AUP or data too old</dd>
+        <dt><b>Buffer</b></dt><dd>Airspace within this distance either side of the route is listed (default 1 NM); "NM off route" is its closest approach when the route doesn't enter it, and NM/Time give the stretch of route within the buffer</dd>
         <dt><b>[AUP] [UUP]</b></dt><dd>Where a reservation comes from: AUP = the day's Airspace Use Plan, UUP = its intraday update, next-day AUP = tomorrow's plan</dd>
         <dt><b>Altitude</b></dt><dd>Checked at cruise; airspace touching departure or destination is checked from the surface up. FL = ft at standard pressure</dd>
         <dt><b>Time</b></dt><dd>Entry–exit from departure time + ETE. Without a departure time all of today's reservations count</dd>
