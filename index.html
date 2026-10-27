@@ -216,9 +216,25 @@ import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0,
          buildAirspaces, findAirspaceCrossings, staticAirspaceInForce, crossingsByLeg } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
-document.getElementById('calcBtn').addEventListener('click', calculate);
+document.getElementById('calcBtn').addEventListener('click', () => exclusive(calculate));
 document.getElementById('printBtn').addEventListener('click', () => window.print());
-document.getElementById('dryRunBtn').addEventListener('click', dryRun);
+document.getElementById('dryRunBtn').addEventListener('click', () => exclusive(dryRun));
+
+// One calculation at a time, locked at click time — before any input is read —
+// so a slower earlier click can't overwrite a newer result
+let running = false;
+async function exclusive(fn) {
+    if (running) return;
+    running = true;
+    const btns = ['calcBtn', 'dryRunBtn'].map(id => document.getElementById(id));
+    btns.forEach(b => b.disabled = true);
+    try {
+        await fn();
+    } finally {
+        running = false;
+        btns.forEach(b => b.disabled = false);
+    }
+}
 
 // ── Magnetic declination — NOAA geomag API (single call for route centroid) ───
 async function fetchDeclination(lat, lon) {
@@ -323,10 +339,12 @@ async function loadAirspaceFile(name) {
 
 // PANSA validity strings are UTC, e.g. "2026-10-25 06:00"
 const parseUtc = s => s ? Date.parse(s.replace(' ', 'T') + ':00Z') : NaN;
-const fmtUtc   = d => d ? new Date(d).toISOString().slice(11, 16) : '—';
-// HH:MM on the reference day, "MM-DD HH:MM" on any other UTC day
+const validTime = d => d !== null && d !== undefined && isFinite(new Date(d).getTime());
+const fmtUtc   = d => validTime(d) ? new Date(d).toISOString().slice(11, 16) : '—';
+// HH:MM on the reference day, "MM-DD HH:MM" on any other UTC day; "??:??" for an unknown time
 const fmtUtcOn = (d, ref) => {
-    if (!d) return '—';
+    if (d === null || d === undefined) return '—';
+    if (!validTime(d)) return '??:??';
     const iso = new Date(d).toISOString();
     return iso.slice(0, 10) === new Date(ref).toISOString().slice(0, 10)
         ? iso.slice(11, 16) : `${iso.slice(5, 10)} ${iso.slice(11, 16)}`;
@@ -360,13 +378,13 @@ async function checkAirspace(points, legs, cruiseAlt, departure, bufferNm, vBuff
         warnings.push(`No published AIRAC cycle covers the flight date — airspace structures shown are from the latest cycle (${esc(cycles.join(', '))}); check the AIP in force.`);
     if (!cruiseAlt) warnings.push('No cruise altitude set — all altitudes are treated as conflicting.');
     if (!departure) warnings.push('No departure time set — every reservation in today\'s AUP/UUP is treated as active.');
-    else {
-        const from = parseUtc(meta.dates?.aup?.[0]);
-        const to   = meta.counts?.['aup-next'] ? parseUtc(meta.dates?.['aup-next']?.[1]) : parseUtc(meta.dates?.aup?.[1]);
-        if (!(departure.getTime() >= from && end.getTime() <= to)) {
-            reliable = false;
-            warnings.push(`Flight time is outside the published AUP (${esc(meta.dates?.aup?.[0])} – ${isFinite(to) ? new Date(to).toISOString().slice(0, 16).replace('T', ' ') : '?'} UTC) — reservations unknown.`);
-        }
+    // The loaded AUP files must cover the flight (from now, without a departure time)
+    const from = parseUtc(meta.dates?.aup?.[0]);
+    const to   = names.includes('aup-next') && meta.counts?.['aup-next']
+        ? parseUtc(meta.dates?.['aup-next']?.[1]) : parseUtc(meta.dates?.aup?.[1]);
+    if (!(start.getTime() >= from && end.getTime() <= to)) {
+        reliable = false;
+        warnings.push(`${departure ? 'Flight time' : 'The current time'} is outside the published AUP (${esc(meta.dates?.aup?.[0])} – ${isFinite(to) ? new Date(to).toISOString().slice(0, 16).replace('T', ' ') : '?'} UTC) — reservations unknown.`);
     }
     const ageH = (Date.now() - Date.parse(meta.fetchedAt)) / 3600e3;
     if (!(ageH <= 2)) {
@@ -466,7 +484,6 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
 }
 
 async function dryRun() {
-    if (running) return;
     document.getElementById('windDir').value       = 270;
     document.getElementById('windSpeed').value     = 15;
     document.getElementById('tas').value           = 100;
@@ -521,15 +538,9 @@ async function calculate() {
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-// One calculation at a time, so a slower earlier run can't overwrite a newer result
-let running = false;
 async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, departure = null, bufferNm = 1, vBufferFt = 500) {
-    if (running) return;
-    running = true;
-    const btns = ['calcBtn', 'dryRunBtn'].map(id => document.getElementById(id));
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
-    btns.forEach(b => b.disabled = true);
     setStatus('Parsing GPX…');
 
     try {
@@ -602,9 +613,6 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
         setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
     } catch (e) {
         err(e.message);
-    } finally {
-        running = false;
-        btns.forEach(b => b.disabled = false);
     }
 }
 
@@ -616,7 +624,6 @@ function setStatus(msg, isErr = false) {
 
 function err(msg) {
     setStatus(msg, true);
-    document.getElementById('calcBtn').disabled = false;
 }
 
 // ── Render results ────────────────────────────────────────────────────────────

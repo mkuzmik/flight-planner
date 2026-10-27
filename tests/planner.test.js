@@ -613,6 +613,11 @@ describe('staticAirspaceInForce', () => {
         expect(r.covered).toBe(false);
         expect(r.features.map(f => f.properties.upperAltitude)).toEqual(['A030']);
     });
+    it('flags a flight that runs past the end of the last published cycle', () => {
+        const r = staticAirspaceInForce(features, at('2026-11-25T23:30:00Z'), at('2026-11-26T00:30:00Z'));
+        expect(r.covered).toBe(false);
+        expect(r.features.map(f => f.properties.upperAltitude)).toEqual(['A030']);
+    });
     it('keeps features without validity dates', () => {
         const r = staticAirspaceInForce([staticFeature('P1', 'P', 'GND', 'A010')], at('2026-10-26T10:00:00Z'), at('2026-10-26T11:00:00Z'));
         expect(r.features).toHaveLength(1);
@@ -621,6 +626,11 @@ describe('staticAirspaceInForce', () => {
 });
 
 describe('buildAirspaces', () => {
+    it('keeps static features that differ only in ATS frequencies', () => {
+        const a = staticFeature('CTR EPXX', 'CTR', 'GND', 'A020', BOX, { services: [{ type: 'TWR', frequencies: ['118.100 MHZ'] }] });
+        const b = staticFeature('CTR EPXX', 'CTR', 'GND', 'A020', BOX, { services: [{ type: 'TWR', frequencies: ['119.200 MHZ'] }] });
+        expect(buildAirspaces([a, b])).toHaveLength(2);
+    });
     it('drops duplicate static features', () => {
         const f = staticFeature('CTR EPXX', 'CTR', 'GND', 'A020');
         expect(buildAirspaces([f, f])).toHaveLength(1);
@@ -783,6 +793,14 @@ describe('findAirspaceCrossings', () => {
         const justAbove = mk('2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'A038', 'F095');
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, justAbove, opts)).toEqual([]);
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, justAbove, { ...opts, verticalBufferFt: 500 })[0].status).toBe('active');
+    });
+
+    it('treats a reservation with an invalid start or end time as a possible conflict', () => {
+        const opts = { cruiseAltFt: 3500, departure: DEP };
+        for (const [start, end] of [['bad', '2026-10-25T07:00:00Z'], ['2026-10-25T06:00:00Z', '']]) {
+            const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA', [[start, end, 'GND', 'F095']])]]);
+            expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, opts)[0].status).toBe('active');
+        }
     });
 
     it('treats missing departure time and cruise altitude as conflicting', () => {

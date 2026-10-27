@@ -317,17 +317,25 @@ const limits = (lower, upper) => ({
 
 // The static layer holds a copy of every area per AIRAC cycle (startTime–endTime),
 // typically the cycle in force and the next one. Keep the cycle(s) in force at
-// any point of the flight [from, to]; if none covers it (cycle not yet
-// published), fall back to the latest cycle with covered = false.
+// any point of the flight [from, to]; covered = false unless those cycles
+// cover the whole flight. With no cycle overlapping it at all (not yet
+// published), fall back to the latest cycle.
 export function staticAirspaceInForce(features, from, to) {
     const t0 = from.getTime(), t1 = to.getTime();
+    const validity = f => [Date.parse(f.properties.startTime), Date.parse(f.properties.endTime)];
+    const dated = f => !isNaN(validity(f)[0]);
+    if (!features.some(dated)) return { features, covered: true };
     const inForce = features.filter(f => {
-        const s = Date.parse(f.properties.startTime), e = Date.parse(f.properties.endTime);
+        const [s, e] = validity(f);
         return !(s > t1) && !(e <= t0);   // missing dates (NaN) keep the feature
     });
-    const dated = inForce.filter(f => !isNaN(Date.parse(f.properties.startTime)));
-    if (dated.length || !features.some(f => !isNaN(Date.parse(f.properties.startTime))))
-        return { features: inForce, covered: true };
+    const spans = [...new Set(inForce.filter(dated).map(f => validity(f).join()))]
+        .map(k => k.split(',').map(Number)).sort((x, y) => x[0] - y[0]);
+    if (spans.length) {
+        let reach = t0;   // how far the overlapping cycles cover the flight without a gap
+        for (const [s, e] of spans) if (s <= reach) reach = Math.max(reach, isNaN(e) ? Infinity : e);
+        return { features: inForce, covered: reach >= t1 };
+    }
     const latest = Math.max(...features.map(f => Date.parse(f.properties.startTime)).filter(isFinite));
     return {
         features: features.filter(f => isNaN(Date.parse(f.properties.startTime)) || Date.parse(f.properties.startTime) === latest),
@@ -347,7 +355,7 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
         if (!polygons.length) continue;
         const p = f.properties;
         // A flight spanning an AIRAC changeover gets both cycles; drop unchanged repeats
-        const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(polygons)].join('|');
+        const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(p.services ?? []), JSON.stringify(polygons)].join('|');
         if (seen.has(key)) continue;
         seen.add(key);
         out.push({
@@ -455,7 +463,7 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
         const enterTime = depMs !== null && isFinite(c.enterH) ? new Date(depMs + c.enterH * 3600e3) : null;
         const exitTime  = depMs !== null && isFinite(c.exitH)  ? new Date(depMs + c.exitH  * 3600e3) : null;
         const timeHit = (s, e) => {
-            if (!enterTime || !exitTime) return true;
+            if (!enterTime || !exitTime || isNaN(s) || isNaN(e)) return true;   // unknown times: possible conflict
             const t0 = enterTime.getTime(), t1 = exitTime.getTime();
             // A point contact counts if the reservation is in force at that instant
             return t0 === t1 ? s <= t0 && e >= t0 : s < t1 && e > t0;
