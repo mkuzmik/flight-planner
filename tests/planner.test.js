@@ -636,6 +636,17 @@ describe('buildAirspaces', () => {
         expect(as.reservations[0].remarks).toBe('');
         expect(as.reservations[0].unit).toBe('MIL');
     });
+    it('records which layer(s) each reservation came from', () => {
+        const r1 = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
+        const r2 = ['2026-10-25T16:00:00Z', '2026-10-25T18:00:00Z', 'GND', 'F095'];
+        const r3 = ['2026-10-26T06:00:00Z', '2026-10-27T06:00:00Z', 'GND', 'A061'];
+        const [as] = buildAirspaces([], [
+            { source: 'AUP',      features: [reservedFeature('EPTR1', 'TRA', [r1])] },
+            { source: 'UUP',      features: [reservedFeature('EPTR1', 'TRA', [r1, r2])] },
+            { source: 'next AUP', features: [reservedFeature('EPTR1', 'TRA', [r3])] },
+        ]);
+        expect(as.reservations.map(r => r.sources)).toEqual([['AUP', 'UUP'], ['UUP'], ['next AUP']]);
+    });
     it('merges reservation layers per area and dedupes reservations', () => {
         const r = ['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'GND', 'A061'];
         const aup = [reservedFeature('EPTR1', 'TRA', [r])];

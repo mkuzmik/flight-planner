@@ -317,6 +317,8 @@ const fmtUtcOn = (d, ref) => {
     return iso.slice(0, 10) === new Date(ref).toISOString().slice(0, 10)
         ? iso.slice(11, 16) : `${iso.slice(5, 10)} ${iso.slice(11, 16)}`;
 };
+// Reservation files from PANSA and how each is named on the page
+const LAYER_LABELS = { 'aup': 'AUP', 'uup': 'UUP', 'aup-next': 'next-day AUP' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 async function checkAirspace(points, legs, cruiseAlt, departure) {
@@ -331,7 +333,8 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
     const start = departure ?? new Date();
     const end   = new Date(start.getTime() + totH * 3600e3);
     const inForce = staticAirspaceInForce(staticFeatures, start, end);
-    const airspaces = buildAirspaces(inForce.features, layers);
+    const airspaces = buildAirspaces(inForce.features,
+                                     layers.map((features, i) => ({ source: LAYER_LABELS[names[i]], features })));
     const cycles = [...new Set(inForce.features.filter(f => f.properties.startTime)
         .map(f => `${f.properties.startTime.slice(0, 10)} – ${(f.properties.endTime ?? '').slice(0, 10)}`))].sort();
 
@@ -358,7 +361,7 @@ async function checkAirspace(points, legs, cruiseAlt, departure) {
     }
     const crossings = findAirspaceCrossings(points, legs, airspaces,
                                             { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable });
-    return { crossings, meta, warnings, reliable, departure, cycles };
+    return { crossings, meta, warnings, reliable, departure, cycles, names };
 }
 
 function renderAirspace(result, legs, errorMsg = null, pending = false) {
@@ -373,7 +376,7 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
         return;
     }
-    const { crossings, meta, warnings, reliable, departure, cycles } = result;
+    const { crossings, meta, warnings, reliable, departure, cycles, names } = result;
     const refDay = departure ?? Date.now();
     const depLabel = departure
         ? `departure ${departure.toISOString().slice(0, 16).replace('T', ' ')} UTC`
@@ -395,7 +398,8 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         ? [...new Set(c.reservations.map(r => `${r.lower}–${r.upper}`))].join(', ')
         : `${c.lower}–${c.upper}`;
     const infoOf = c => c.reservations.length
-        ? c.reservations.map(r => [`${fmtUtcOn(r.start, refDay)}–${fmtUtcOn(r.end, refDay)}`, r.unit, r.remarks].filter(Boolean).map(esc).join(' · ')).join('<br>')
+        ? c.reservations.map(r => `<b>[${esc(r.sources.join(' + '))}]</b> `
+            + [`${fmtUtcOn(r.start, refDay)}–${fmtUtcOn(r.end, refDay)}`, r.unit, r.remarks].filter(Boolean).map(esc).join(' · ')).join('<br>')
         : c.services.map(sv => esc(`${sv.type} ${sv.frequencies.join(', ')}`)).join('<br>');
 
     let html = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace `
@@ -419,7 +423,12 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
     }
     if (inactive.length)
         html += `<p class="as-note">Crossed but not reserved at your time/altitude: ${inactive.map(c => esc(c.designator)).join(', ')}</p>`;
-    html += `<p class="as-note">PANSA AUP/UUP, PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC. `
+    // Which reservation files this check used, with their validity
+    const fmtWindow = w => w ? `${w[0]} – ${w[1]} UTC` : '';
+    const sourceList = names.map(n => meta.counts?.[n]
+        ? `${LAYER_LABELS[n]} ${fmtWindow(meta.dates?.[n])}`
+        : `${LAYER_LABELS[n]} not published yet`).join(' · ');
+    html += `<p class="as-note">Reservations from PANSA: ${esc(sourceList)} (PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC). `
           + (cycles.length ? `Airspace structures: AIRAC ${esc(cycles.join(' and '))}. ` : '')
           + `Planning aid only — check the current AUP/UUP and NOTAMs before flight.</p>`;
     card.innerHTML = html;
@@ -733,6 +742,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>CONTROLLED</b></dt><dd>CTR/TMA/MCTR/MTMA on your route at your altitude — clearance required</dd>
         <dt><b>PROHIBITED / RESTRICTED</b></dt><dd>Permanent P or R area from the AIP on your route at your altitude</dd>
         <dt><b>VERIFY</b></dt><dd>Reservable area on your route that can't be confirmed free — flight outside the published AUP or data too old</dd>
+        <dt><b>[AUP] [UUP]</b></dt><dd>Where a reservation comes from: AUP = the day's Airspace Use Plan, UUP = its intraday update, next-day AUP = tomorrow's plan</dd>
         <dt><b>Altitude</b></dt><dd>Checked at cruise; airspace touching departure or destination is checked from the surface up. FL = ft at standard pressure</dd>
         <dt><b>Time</b></dt><dd>Entry–exit from departure time + ETE. Without a departure time all of today's reservations count</dd>
       </dl>

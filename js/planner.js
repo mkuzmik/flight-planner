@@ -256,8 +256,9 @@ export function staticAirspaceInForce(features, from, to) {
 }
 
 // Normalises PANSA GeoJSON layers into one list of airspaces.
-// Reservation layers (AUP, UUP, next-day AUP) are merged per area and their
-// reservations unioned, so an area reserved in any of them is reported.
+// Reservation layers (AUP, UUP, next-day AUP) — each { source, features } or a
+// bare feature array — are merged per area and their reservations unioned, so an
+// area reserved in any of them is reported; each reservation lists its sources.
 export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
     const out = [];
     const seen = new Set();
@@ -276,8 +277,9 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
         });
     }
     const byKey = new Map();
-    for (const layer of reservationLayers)
-        for (const f of layer) {
+    for (const layer of reservationLayers) {
+        const { source = null, features } = Array.isArray(layer) ? { features: layer } : layer;
+        for (const f of features) {
             const polygons = polygonsOf(f.geometry);
             if (!polygons.length) continue;
             const key = f.properties.designator + '|' + JSON.stringify(polygons);
@@ -293,10 +295,12 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
                     start: Date.parse(r.startDate), end: Date.parse(r.endDate),
                     ...limits(r.lowerAltitude, r.upperAltitude),
                     unit: r.unit ?? '', remarks: r.remarks ?? '', status: r.reservationStatus ?? '',
+                    sources: source ? [source] : [],
                 };
                 const same = as.reservations.find(x => x.start === res.start && x.end === res.end
                                                     && x.lower === res.lower && x.upper === res.upper);
                 if (!same) { as.reservations.push(res); continue; }
+                if (source && !same.sources.includes(source)) same.sources.push(source);
                 // Later layers (UUP after AUP) carry the newer unit and remarks,
                 // including an explicitly emptied one
                 if (r.unit !== undefined) same.unit = res.unit;
@@ -304,6 +308,7 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
                 if (res.status === 'ACTIVATED') same.status = 'ACTIVATED';
             }
         }
+    }
     for (const as of out) as.reservations?.sort((x, y) => x.start - y.start);
     return out;
 }
