@@ -828,6 +828,13 @@ describe('findAirspaceCrossings', () => {
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, bufferNm: 0.5 })).toEqual([]);
     });
 
+    it('reports the closest approach to a vertex pointing at the route', () => {
+        const tip = 52.5 + 0.8 / 60;   // 0.8 NM north of the route along lat 52.5
+        const triangle = staticFeature('R TIP', 'R', 'GND', 'A050', [[[21.5, tip], [21.6, tip + 0.1], [21.4, tip + 0.1], [21.5, tip]]]);
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, buildAirspaces([triangle]), { cruiseAltFt: 3500, bufferNm: 1 });
+        expect(c.distanceNm).toBeCloseTo(0.8, 2);
+    });
+
     it('gives distance 0 for airspace the route enters', () => {
         const as = buildAirspaces([staticFeature('TMA EPXX', 'TMA', 'A020', 'F095')]);
         const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, bufferNm: 1 });

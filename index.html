@@ -17,7 +17,8 @@
         .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
         /* Wide enough to show the validity dates in full */
         .form-grid .wide { grid-column: span 2; }
-        @media (max-width: 480px) { .form-grid .wide { grid-column: auto; } }
+        /* Single column below 2 × 200px + gap + page/card padding (528px) */
+        @media (max-width: 560px) { .form-grid .wide { grid-column: auto; } }
         label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
         label small { font-weight: 400; }
 
@@ -353,6 +354,17 @@ async function loadAirspaceFile(name) {
     return resp.json();
 }
 
+// meta.json and the data files from one deployment: meta.json is read again after
+// the files, and the load retried if a deploy changed it in between
+async function loadAirspaceSnapshot(names) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const meta = await loadAirspaceFile('meta');
+        const files = await Promise.all(names.map(loadAirspaceFile));
+        if ((await loadAirspaceFile('meta')).fetchedAt === meta.fetchedAt) return { meta, files };
+    }
+    throw new Error('airspace data kept changing while loading (a deploy in progress?) — try again');
+}
+
 // PANSA validity strings are UTC, e.g. "2026-10-25 06:00"
 const parseUtc = s => s ? Date.parse(s.replace(' ', 'T') + ':00Z') : NaN;
 const validTime = d => d !== null && d !== undefined && isFinite(new Date(d).getTime());
@@ -417,10 +429,9 @@ async function initAirspaceOptions() {
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 async function checkAirspace(points, legs, cruiseAlt, { departure = null, bufferNm = 1, vBufferFt = 500, plan = 'today', cycleStart = '' } = {}) {
-    const meta = await loadAirspaceFile('meta');
-    fillAirspaceOptions(meta);   // keep the selectors in step with the data being checked
     const names = PLANS[plan].names;
-    const [staticFeatures, ...layers] = await Promise.all(['static', ...names].map(loadAirspaceFile));
+    const { meta, files: [staticFeatures, ...layers] } = await loadAirspaceSnapshot(['static', ...names]);
+    fillAirspaceOptions(meta);   // keep the selectors in step with the data being checked
 
     const warnings = [];
     // Airspace structures from the AIRAC cycle the user chose

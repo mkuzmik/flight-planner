@@ -274,7 +274,7 @@ function bufferedIntervals(a, b, rings, bufferNm) {
     if (start !== null) intervals.push([start, 1]);
     // An approach narrower than the sampling step: grow it from the closest point
     for (const t of closestCandidates(A, B, R)) {
-        if (!within(t) || intervals.some(([s, e]) => t >= s - 1e-9 && t <= e + 1e-9)) continue;
+        if (intervals.some(([s, e]) => t >= s - 1e-9 && t <= e + 1e-9) || !within(t)) continue;
         const k = Math.floor(t * n);
         intervals.push([edge(t, k / n), edge(t, Math.min(1, (k + 1) / n))]);
     }
@@ -287,12 +287,21 @@ function bufferedIntervals(a, b, rings, bufferNm) {
     }, []);
 }
 
-// Closest approach of segment a→b to the polygon, in NM
+// Closest approach of segment a→b to the polygon, in NM (0 if it touches or enters it).
+// One pass over the edges: between non-crossing segments the minimum is at an endpoint.
 function segmentPolygonDistanceNm(a, b, rings) {
     const proj = nmProjection((a[1] + b[1]) / 2);
     const A = proj(a), B = proj(b), R = rings.map(r => r.map(proj));
-    return Math.min(...closestCandidates(A, B, R).map(t =>
-        pointPolygonDist([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t], R)));
+    if (pointInPolygon(A, R) || pointInPolygon(B, R)) return 0;
+    let d = Infinity;
+    for (const ring of R)
+        for (let i = 1; i < ring.length; i++) {
+            const c = ring[i - 1], e = ring[i];
+            if (segmentIntersectTs(A, B, c, e).length) return 0;
+            d = Math.min(d, pointSegmentDist(A, c, e), pointSegmentDist(B, c, e),
+                            pointSegmentDist(c, A, B), pointSegmentDist(e, A, B));
+        }
+    return d;
 }
 
 function polygonsOf(geometry) {

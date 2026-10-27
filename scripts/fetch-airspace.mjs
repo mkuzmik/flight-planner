@@ -32,18 +32,26 @@ function slim(features, name) {
         }));
 }
 
-const config = await getJson('meta/configuration');
-await mkdir(OUT_DIR, { recursive: true });
+// Download every layer, then re-read PANSA's configuration: if its validity windows or
+// update time changed meanwhile (e.g. the daily rollover), the layers may mix two days — retry
+const sameConfig = (x, y) => JSON.stringify([x.lastUpdate, x.dates]) === JSON.stringify([y.lastUpdate, y.dates]);
+let config, layers;
+for (let attempt = 1; ; attempt++) {
+    config = await getJson('meta/configuration');
+    layers = {};
+    for (const [name, path] of Object.entries(LAYERS)) layers[name] = slim(await getJson(path), name);
+    if (sameConfig(config, await getJson('meta/configuration'))) break;
+    if (attempt === 3) throw new Error('PANSA data kept changing during the download');
+}
+if (!layers.static.length) throw new Error('static airspace layer is empty');
 
+await mkdir(OUT_DIR, { recursive: true });
 const counts = {};
-let airac = [];
-for (const [name, path] of Object.entries(LAYERS)) {
-    const features = slim(await getJson(path), name);
-    if (name === 'static' && !features.length) throw new Error('static airspace layer is empty');
-    if (name === 'static') airac = airacCycles(features);
+for (const [name, features] of Object.entries(layers)) {
     await writeFile(new URL(`${name}.json`, OUT_DIR), JSON.stringify(features));
     counts[name] = features.length;
 }
+const airac = airacCycles(layers.static);
 
 const meta = {
     fetchedAt:  new Date().toISOString(),
