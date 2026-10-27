@@ -26,7 +26,9 @@ Then open `http://localhost:3000`.
 | TAS | True airspeed, knots |
 | Fuel Consumption | US gallons per hour |
 | Cruise Altitude | Feet MSL — used for VOR range and the airspace check |
-| Departure | UTC, optional — used to check AUP reservations against the time you're inside each area |
+| Departure | UTC, optional — used to check reservations against the time you're inside each area; without it every reservation in the chosen plan counts |
+| Reservation Plan | Today (AUP + UUP) or Tomorrow (next-day AUP), each shown with its validity |
+| AIRAC Cycle | Which published AIP cycle the airspace structures come from, shown with its validity (default: in force today) |
 | Airspace Buffer | NM either side of the route (default 1) — airspace this close to the route is listed too |
 | Vertical Buffer | ft above cruise (default 500) — airspace starting higher than cruise + this is left out; everything below is listed |
 
@@ -36,8 +38,8 @@ Magnetic declination is fetched automatically from the [NOAA IGRF API](https://w
 
 The route is checked against Polish airspace published by PANSA. Results appear under each leg of the plan table, with warnings and the data sources below it:
 
-- **Reservations** (TRA, TSA, D, R, ATZ…) from the current AUP, UUP and next-day AUP — flagged *ACTIVE* when a reservation is in force while you're in or near the area and starts below cruise + vertical buffer
-- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — listed when it starts below cruise + vertical buffer, with ATS frequencies. PANSA publishes it per AIRAC cycle (usually the cycle in force and the next one); the check uses the cycle in force on the flight date and warns when no published cycle covers it
+- **Reservations** (TRA, TSA, D, R, ATZ…) from the chosen plan — today's AUP + UUP or tomorrow's AUP — flagged *ACTIVE* when a reservation is in force while you're in or near the area and starts below cruise + vertical buffer
+- **Static airspace** (CTR, TMA, MCTR, MTMA, P, R, ADIZ) — listed when it starts below cruise + vertical buffer, with ATS frequencies. PANSA publishes it per AIRAC cycle (usually the cycle in force and the next one); you choose the cycle, and the page warns when a departure time falls outside it
 
 Airspace within the buffer (default 1 NM) of the route is listed too, with its closest distance when the route doesn't enter it. Each reservation is tagged with the PANSA file it comes from (AUP, UUP, next-day AUP), and the page lists the files used with their validity. Vertically, airspace starting more than the vertical buffer (default 500 ft) above cruise is left out; everything below cruise is listed and marked "below you" when it ends below cruise. Missing altitude or departure time is treated as a possible conflict. It is a planning aid — always check the current AUP/UUP and NOTAMs.
 

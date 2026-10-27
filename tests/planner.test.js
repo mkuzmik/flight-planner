@@ -5,7 +5,7 @@ import {
     computeFuelSummary, findNearestVor,
     fmtTime, r0, r1, r2,
     parseAltitudeLimit, pointInPolygon, segmentPolygonIntervals,
-    buildAirspaces, findAirspaceCrossings, staticAirspaceInForce, crossingsByLeg,
+    buildAirspaces, findAirspaceCrossings, airacCycles, staticAirspaceForCycle, crossingsByLeg,
 } from '../js/planner.js';
 
 // ── GPX fixtures ──────────────────────────────────────────────────────────────
@@ -588,40 +588,24 @@ describe('segmentPolygonIntervals', () => {
     });
 });
 
-describe('staticAirspaceInForce', () => {
+describe('AIRAC cycles', () => {
     const cycle = (designator, start, end, upper = 'A020') =>
         staticFeature(designator, 'CTR', 'GND', upper, BOX, { startTime: start, endTime: end });
     const CURRENT = ['2026-10-02T00:00:00Z', '2026-10-29T00:00:00Z'];
     const NEXT    = ['2026-10-29T00:00:00Z', '2026-11-26T00:00:00Z'];
-    const features = [cycle('CTR A', ...CURRENT, 'A020'), cycle('CTR A', ...NEXT, 'A030')];
-    const at = iso => new Date(iso);
+    const features = [cycle('CTR A', ...NEXT, 'A030'), cycle('CTR A', ...CURRENT, 'A020'), cycle('CTR B', ...CURRENT)];
 
-    it('picks the AIRAC cycle in force during the flight', () => {
-        const r = staticAirspaceInForce(features, at('2026-10-26T10:00:00Z'), at('2026-10-26T11:30:00Z'));
-        expect(r.covered).toBe(true);
-        expect(r.features.map(f => f.properties.upperAltitude)).toEqual(['A020']);
-        expect(staticAirspaceInForce(features, at('2026-11-02T10:00:00Z'), at('2026-11-02T11:00:00Z'))
-            .features.map(f => f.properties.upperAltitude)).toEqual(['A030']);
+    it('lists the published cycles with their validity, oldest first', () => {
+        expect(airacCycles(features)).toEqual([{ start: CURRENT[0], end: CURRENT[1] }, { start: NEXT[0], end: NEXT[1] }]);
     });
-    it('uses both cycles for a flight spanning the changeover', () => {
-        const r = staticAirspaceInForce(features, at('2026-10-28T23:30:00Z'), at('2026-10-29T00:30:00Z'));
-        expect(r.features).toHaveLength(2);
-        expect(r.covered).toBe(true);
+    it('keeps only the chosen cycle', () => {
+        expect(staticAirspaceForCycle(features, NEXT[0]).map(f => f.properties.upperAltitude)).toEqual(['A030']);
+        expect(staticAirspaceForCycle(features, CURRENT[0])).toHaveLength(2);
     });
-    it('falls back to the latest cycle and flags it when no cycle covers the flight', () => {
-        const r = staticAirspaceInForce(features, at('2026-12-01T10:00:00Z'), at('2026-12-01T11:00:00Z'));
-        expect(r.covered).toBe(false);
-        expect(r.features.map(f => f.properties.upperAltitude)).toEqual(['A030']);
-    });
-    it('flags a flight that runs past the end of the last published cycle', () => {
-        const r = staticAirspaceInForce(features, at('2026-11-25T23:30:00Z'), at('2026-11-26T00:30:00Z'));
-        expect(r.covered).toBe(false);
-        expect(r.features.map(f => f.properties.upperAltitude)).toEqual(['A030']);
-    });
-    it('keeps features without validity dates', () => {
-        const r = staticAirspaceInForce([staticFeature('P1', 'P', 'GND', 'A010')], at('2026-10-26T10:00:00Z'), at('2026-10-26T11:00:00Z'));
-        expect(r.features).toHaveLength(1);
-        expect(r.covered).toBe(true);
+    it('keeps features without validity dates whatever the cycle', () => {
+        const undated = staticFeature('P1', 'P', 'GND', 'A010');
+        expect(airacCycles([undated])).toEqual([]);
+        expect(staticAirspaceForCycle([undated, ...features], NEXT[0])).toHaveLength(2);
     });
 });
 

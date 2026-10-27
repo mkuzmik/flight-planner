@@ -316,31 +316,17 @@ const limits = (lower, upper) => ({
 });
 
 // The static layer holds a copy of every area per AIRAC cycle (startTime–endTime),
-// typically the cycle in force and the next one. Keep the cycle(s) in force at
-// any point of the flight [from, to]; covered = false unless those cycles
-// cover the whole flight. With no cycle overlapping it at all (not yet
-// published), fall back to the latest cycle.
-export function staticAirspaceInForce(features, from, to) {
-    const t0 = from.getTime(), t1 = to.getTime();
-    const validity = f => [Date.parse(f.properties.startTime), Date.parse(f.properties.endTime)];
-    const dated = f => !isNaN(validity(f)[0]);
-    if (!features.some(dated)) return { features, covered: true };
-    const inForce = features.filter(f => {
-        const [s, e] = validity(f);
-        return !(s > t1) && !(e <= t0);   // missing dates (NaN) keep the feature
-    });
-    const spans = [...new Set(inForce.filter(dated).map(f => validity(f).join()))]
-        .map(k => k.split(',').map(Number)).sort((x, y) => x[0] - y[0]);
-    if (spans.length) {
-        let reach = t0;   // how far the overlapping cycles cover the flight without a gap
-        for (const [s, e] of spans) if (s <= reach) reach = Math.max(reach, isNaN(e) ? Infinity : e);
-        return { features: inForce, covered: reach >= t1 };
-    }
-    const latest = Math.max(...features.map(f => Date.parse(f.properties.startTime)).filter(isFinite));
-    return {
-        features: features.filter(f => isNaN(Date.parse(f.properties.startTime)) || Date.parse(f.properties.startTime) === latest),
-        covered: false,
-    };
+// typically the cycle in force and the next one. The user picks the cycle.
+export function airacCycles(features) {
+    const byStart = new Map();
+    for (const { properties: { startTime, endTime } } of features)
+        if (startTime && !byStart.has(startTime)) byStart.set(startTime, { start: startTime, end: endTime ?? null });
+    return [...byStart.values()].sort((x, y) => Date.parse(x.start) - Date.parse(y.start));
+}
+
+// Features of the chosen cycle (identified by its start), plus any without validity dates
+export function staticAirspaceForCycle(features, cycleStart) {
+    return features.filter(f => !f.properties.startTime || f.properties.startTime === cycleStart);
 }
 
 // Normalises PANSA GeoJSON layers into one list of airspaces.
@@ -354,7 +340,7 @@ export function buildAirspaces(staticFeatures = [], reservationLayers = []) {
         const polygons = polygonsOf(f.geometry);
         if (!polygons.length) continue;
         const p = f.properties;
-        // A flight spanning an AIRAC changeover gets both cycles; drop unchanged repeats
+        // Drop exact repeats of an area
         const key = [p.designator, p.lowerAltitude, p.upperAltitude, JSON.stringify(p.services ?? []), JSON.stringify(polygons)].join('|');
         if (seen.has(key)) continue;
         seen.add(key);

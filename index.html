@@ -178,8 +178,21 @@
                 <input type="number" id="vBufferFt" placeholder="500" min="0" step="100" value="500">
             </div>
             <div>
-                <label for="departure">Departure <small>(UTC, for airspace check)</small></label>
+                <label for="departure">Departure <small>(UTC, optional)</small></label>
                 <input type="datetime-local" id="departure">
+            </div>
+            <div>
+                <label for="aupPlan">Reservation Plan <small>(PANSA AUP/UUP)</small></label>
+                <select id="aupPlan" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
+                    <option value="today">Today — AUP + UUP</option>
+                    <option value="tomorrow">Tomorrow — next-day AUP</option>
+                </select>
+            </div>
+            <div>
+                <label for="airacCycle">AIRAC Cycle <small>(airspace structures)</small></label>
+                <select id="airacCycle" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
+                    <option value="">Loading…</option>
+                </select>
             </div>
             <div>
                 <label>Alternate Airport <small>(ICAO, optional)</small></label>
@@ -213,7 +226,7 @@
 
 <script type="module">
 import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0, r1, r2,
-         buildAirspaces, findAirspaceCrossings, staticAirspaceInForce, crossingsByLeg } from './js/planner.js';
+         buildAirspaces, findAirspaceCrossings, staticAirspaceForCycle, crossingsByLeg } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', () => exclusive(calculate));
@@ -351,40 +364,77 @@ const fmtUtcOn = (d, ref) => {
 };
 // Reservation files from PANSA and how each is named on the page
 const LAYER_LABELS = { 'aup': 'AUP', 'uup': 'UUP', 'aup-next': 'next-day AUP' };
+// The two plans the user picks from, and the files each uses
+const PLANS = {
+    today:    { label: 'Today — AUP + UUP', names: ['aup', 'uup'], window: 'aup' },
+    tomorrow: { label: 'Tomorrow — next-day AUP', names: ['aup-next'], window: 'aup-next' },
+};
+const isoWindow = (s, e) => `${s.slice(0, 16).replace('T', ' ')} – ${e ? e.slice(0, 16).replace('T', ' ') : '?'} UTC`;
+const planValidity = (meta, plan) => meta.counts?.[PLANS[plan].window] && meta.dates?.[PLANS[plan].window]
+    ? `${meta.dates[PLANS[plan].window][0]} – ${meta.dates[PLANS[plan].window][1]} UTC` : null;
+
+// Fill the plan and AIRAC selectors with what the deployed data holds, validity included
+async function initAirspaceOptions() {
+    const planSel = document.getElementById('aupPlan'), cycleSel = document.getElementById('airacCycle');
+    try {
+        const meta = await loadAirspaceFile('meta');
+        for (const opt of planSel.options) {
+            const validity = planValidity(meta, opt.value);
+            opt.textContent = `${PLANS[opt.value].label} · ${validity ?? 'not published yet'}`;
+        }
+        const now = Date.now();
+        const cycles = meta.airac ?? [];
+        cycleSel.innerHTML = cycles.map(c => {
+            const inForce = Date.parse(c.start) <= now && (!c.end || now < Date.parse(c.end));
+            return `<option value="${esc(c.start)}"${inForce ? ' selected' : ''}>`
+                 + `${esc(isoWindow(c.start, c.end))}${inForce ? ' (in force now)' : ''}</option>`;
+        }).join('') || '<option value="">No AIRAC data</option>';
+        if (cycles.length && !cycles.some(c => Date.parse(c.start) <= now && (!c.end || now < Date.parse(c.end))))
+            cycleSel.value = cycles[cycles.length - 1].start;
+    } catch {
+        cycleSel.innerHTML = '<option value="">Airspace data unavailable</option>';
+    }
+}
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-async function checkAirspace(points, legs, cruiseAlt, departure, bufferNm, vBufferFt) {
+async function checkAirspace(points, legs, cruiseAlt, { departure = null, bufferNm = 1, vBufferFt = 500, plan = 'today', cycleStart = '' } = {}) {
     const meta = await loadAirspaceFile('meta');
-    // Without a departure time, check against today's plan only
-    const names = departure ? ['aup', 'uup', 'aup-next'] : ['aup', 'uup'];
+    const names = PLANS[plan].names;
     const [staticFeatures, ...layers] = await Promise.all(['static', ...names].map(loadAirspaceFile));
 
-    // CTR/TMA/P/R structures change with each AIRAC cycle: use the one in force
-    // during the flight (now, if no departure time is set)
+    const warnings = [];
+    // Airspace structures from the AIRAC cycle the user chose
+    const cycles = meta.airac ?? [];
+    let cycle = cycles.find(c => c.start === cycleStart);
+    if (!cycle && cycles.length) {
+        cycle = cycles[cycles.length - 1];
+        warnings.push(`The chosen AIRAC cycle is no longer in the data — using ${esc(isoWindow(cycle.start, cycle.end))}.`);
+    }
+    const airspaces = buildAirspaces(cycle ? staticAirspaceForCycle(staticFeatures, cycle.start) : staticFeatures,
+                                     layers.map((features, i) => ({ source: LAYER_LABELS[names[i]], features })));
+
     const totH  = legs.reduce((s, l) => s + (isFinite(l.eteH) ? l.eteH : 0), 0);
     const start = departure ?? new Date();
     const end   = new Date(start.getTime() + totH * 3600e3);
-    const inForce = staticAirspaceInForce(staticFeatures, start, end);
-    const airspaces = buildAirspaces(inForce.features,
-                                     layers.map((features, i) => ({ source: LAYER_LABELS[names[i]], features })));
-    const cycles = [...new Set(inForce.features.filter(f => f.properties.startTime)
-        .map(f => `${f.properties.startTime.slice(0, 10)} – ${(f.properties.endTime ?? '').slice(0, 10)}`))].sort();
+    if (departure && cycle && (start < Date.parse(cycle.start) || (cycle.end && end > Date.parse(cycle.end))))
+        warnings.push(`The flight is outside the chosen AIRAC cycle (${esc(isoWindow(cycle.start, cycle.end))}) — check the cycle in force on the day.`);
 
-    // Reservations can only show an area is free when the AUP covers the
-    // flight and the data is fresh; otherwise nothing is reported as clear
+    // Reservations can only show an area is free when the chosen plan is
+    // published, covers the flight and the data is fresh
     let reliable = true;
-    const warnings = [];
-    if (!inForce.covered)
-        warnings.push(`No published AIRAC cycle covers the flight date — airspace structures shown are from the latest cycle (${esc(cycles.join(', '))}); check the AIP in force.`);
     if (!cruiseAlt) warnings.push('No cruise altitude set — all altitudes are treated as conflicting.');
-    if (!departure) warnings.push('No departure time set — every reservation in today\'s AUP/UUP is treated as active.');
-    // The loaded AUP files must cover the flight (from now, without a departure time)
-    const from = parseUtc(meta.dates?.aup?.[0]);
-    const to   = names.includes('aup-next') && meta.counts?.['aup-next']
-        ? parseUtc(meta.dates?.['aup-next']?.[1]) : parseUtc(meta.dates?.aup?.[1]);
-    if (!(start.getTime() >= from && end.getTime() <= to)) {
+    if (!departure) warnings.push('No departure time set — every reservation in the chosen plan is treated as active.');
+    const validity = planValidity(meta, plan);
+    const planFrom = parseUtc(meta.dates?.[PLANS[plan].window]?.[0]), planTo = parseUtc(meta.dates?.[PLANS[plan].window]?.[1]);
+    if (!validity) {
         reliable = false;
-        warnings.push(`${departure ? 'Flight time' : 'The current time'} is outside the published AUP (${esc(meta.dates?.aup?.[0])} – ${isFinite(to) ? new Date(to).toISOString().slice(0, 16).replace('T', ' ') : '?'} UTC) — reservations unknown.`);
+        warnings.push(`${esc(PLANS[plan].label)} is not published yet — reservations unknown.`);
+    } else if (departure && !(start.getTime() >= planFrom && end.getTime() <= planTo)) {
+        reliable = false;
+        warnings.push(`The flight is outside the chosen plan (${esc(validity)}) — reservations unknown.`);
+    } else if (!departure && !(Date.now() < planTo)) {
+        reliable = false;
+        warnings.push(`The chosen plan has expired (${esc(validity)}) — reservations unknown.`);
     }
     const ageH = (Date.now() - Date.parse(meta.fetchedAt)) / 3600e3;
     if (!(ageH <= 2)) {
@@ -394,7 +444,7 @@ async function checkAirspace(points, legs, cruiseAlt, departure, bufferNm, vBuff
     const crossings = findAirspaceCrossings(points, legs, airspaces,
                                             { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable,
                                               bufferNm, verticalBufferFt: vBufferFt });
-    return { crossings, meta, warnings, reliable, departure, cycles, names, bufferNm, vBufferFt, cruiseAlt };
+    return { crossings, meta, warnings, reliable, departure, cycle, plan, names, bufferNm, vBufferFt, cruiseAlt };
 }
 
 function renderAirspace(result, legs, errorMsg = null, pending = false) {
@@ -409,11 +459,11 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
         card.innerHTML = title + `<p class="as-warn">⚠ Airspace data unavailable: ${esc(errorMsg)}</p>`;
         return;
     }
-    const { crossings, meta, warnings, reliable, departure, cycles, names, bufferNm, vBufferFt, cruiseAlt } = result;
+    const { crossings, meta, warnings, reliable, departure, cycle, plan, names, bufferNm, vBufferFt, cruiseAlt } = result;
     const refDay = departure ?? Date.now();
     const depLabel = departure
         ? `departure ${departure.toISOString().slice(0, 16).replace('T', ' ')} UTC`
-        : `no departure time — today's plan`;
+        : 'no departure time';
     const bufferLabel = (bufferNm > 0 ? `within ${bufferNm} NM of the route` : 'on the route line only (no buffer)')
         + (cruiseAlt > 0 ? `, starting below ${cruiseAlt + vBufferFt} ft (cruise + ${vBufferFt} ft)` : ', all altitudes');
     const relevant = crossings.filter(c => c.status !== 'inactive');
@@ -466,19 +516,19 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
     });
 
     let html = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace `
-             + `<small style="font-weight:400;color:#555">· ${esc(depLabel)} · ${esc(bufferLabel)}</small></h3>` + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
+             + `<small style="font-weight:400;color:#555">· ${esc(PLANS[plan].label)} · ${esc(depLabel)} · ${esc(bufferLabel)}</small></h3>` + warnings.map(w => `<p class="as-warn">⚠ ${w}</p>`).join('');
     html += relevant.length
         ? `<p style="font-size:0.88rem">${relevant.length} airspace item${relevant.length > 1 ? 's' : ''} listed under the legs above.</p>`
         : reliable
             ? `<p style="font-size:0.88rem">No conflicting airspace found on the route.</p>`
             : `<p style="font-size:0.88rem">No known conflicts, but reservations could not be fully checked (see warnings) — verify in the current AUP/UUP.</p>`;
-    // Which reservation files this check used, with their validity
+    // Which reservation files and AIRAC cycle this check used, with their validity
     const fmtWindow = w => w ? `${w[0]} – ${w[1]} UTC` : '';
     const sourceList = names.map(n => meta.counts?.[n]
         ? `${LAYER_LABELS[n]} ${fmtWindow(meta.dates?.[n])}`
         : `${LAYER_LABELS[n]} not published yet`).join(' · ');
-    html += `<p class="as-note">Reservations from PANSA: ${esc(sourceList)} (PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC). `
-          + (cycles.length ? `Airspace structures: AIRAC ${esc(cycles.join(' and '))}. ` : '')
+    html += `<p class="as-note">Reservations: ${esc(PLANS[plan].label)} — ${esc(sourceList)} (PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC). `
+          + (cycle ? `Airspace structures: AIRAC cycle valid ${esc(isoWindow(cycle.start, cycle.end))}. ` : '')
           + `Planning aid only — check the current AUP/UUP and NOTAMs before flight.</p>`;
     card.innerHTML = html;
 }
@@ -499,10 +549,12 @@ async function dryRun() {
     document.getElementById('departure').value     = nextHour.toISOString().slice(0, 16);
     document.getElementById('bufferNm').value      = 1;
     document.getElementById('vBufferFt').value     = 500;
+    document.getElementById('aupPlan').value       = 'today';
 
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
-    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500, nextHour, 1, 500);
+    await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500,
+              { departure: nextHour, bufferNm: 1, vBufferFt: 500, plan: 'today', cycleStart: document.getElementById('airacCycle').value });
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -534,11 +586,13 @@ async function calculate() {
     if (isNaN(bufferNm) || bufferNm < 0)                return err('Airspace buffer must be ≥ 0 NM.');
     if (isNaN(vBufferFt) || vBufferFt < 0)              return err('Vertical buffer must be ≥ 0 ft.');
 
-    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt, departure, bufferNm, vBufferFt);
+    await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt,
+              { departure, bufferNm, vBufferFt, plan: document.getElementById('aupPlan').value,
+                cycleStart: document.getElementById('airacCycle').value });
 }
 
 // ── Shared calculation core ───────────────────────────────────────────────────
-async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, departure = null, bufferNm = 1, vBufferFt = 500) {
+async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, climbFuel = 0, reserveMin = 45, alternateIcao = '', tgCount = 0, tgCircuitMin = 6, cruiseAlt = 0, airspaceOpts = {}) {
     document.getElementById('results').style.display = 'none';
     document.getElementById('status').className = '';
     setStatus('Parsing GPX…');
@@ -606,7 +660,7 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
         setStatus('Checking airspace…');
         renderAirspace(null, legs, null, true);
         try {
-            renderAirspace(await checkAirspace(points, legs, cruiseAlt, departure, bufferNm, vBufferFt), legs);
+            renderAirspace(await checkAirspace(points, legs, cruiseAlt, airspaceOpts), legs);
         } catch (e) {
             renderAirspace(null, legs, e.message);
         }
@@ -746,6 +800,7 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
 
     document.getElementById('results').style.display = 'block';
 }
+initAirspaceOptions();
 </script>
 
 <div class="card" id="legendCard" style="margin-top:2rem;font-size:0.85rem;color:#444;">
@@ -791,7 +846,9 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
         <dt><b>Buffer</b></dt><dd>Airspace within this distance either side of the route is listed (default 1 NM); "NM off route" is its closest approach when the route doesn't enter it, and "NM into leg" / time give the stretch of that leg within the buffer</dd>
         <dt><b>[AUP] [UUP]</b></dt><dd>Where a reservation comes from: AUP = the day's Airspace Use Plan, UUP = its intraday update, next-day AUP = tomorrow's plan</dd>
         <dt><b>Altitude</b></dt><dd>Airspace starting more than the vertical buffer (default 500 ft) above cruise is left out; everything below is listed ("below you" when it ends below cruise). FL = ft at standard pressure</dd>
-        <dt><b>Time</b></dt><dd>Entry–exit from departure time + leg ETEs. Without a departure time all of today's reservations count</dd>
+        <dt><b>Time</b></dt><dd>Entry–exit from departure time + leg ETEs. Without a departure time every reservation in the chosen plan counts</dd>
+        <dt><b>Plan</b></dt><dd>Reservations from today's AUP + UUP or tomorrow's AUP, as chosen; validity shown in the selector and under the table</dd>
+        <dt><b>AIRAC</b></dt><dd>Cycle of the AIP the CTR/TMA/P/R shapes, limits and frequencies come from, as chosen (default: in force today); validity shown in the selector and under the table</dd>
         <dt><b>↑ / ↓</b></dt><dd>Airspace continuing from the previous leg / into the next one; its reservation or frequencies are shown where it first appears</dd>
       </dl>
     </div>
