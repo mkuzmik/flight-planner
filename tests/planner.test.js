@@ -802,6 +802,13 @@ describe('findAirspaceCrossings', () => {
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { ...opts, reservationsReliable: false })[0].status).toBe('unverified');
     });
 
+    it('never marks an unverified area as below you', () => {
+        const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA',
+            [['2026-10-20T06:00:00Z', '2026-10-21T06:00:00Z', 'GND', 'A020']])]]);
+        const [c] = findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { cruiseAltFt: 3500, departure: DEP, reservationsReliable: false });
+        expect(c).toMatchObject({ status: 'unverified', belowCruise: false });
+    });
+
     it('shows a boundary contact at a waypoint under both legs that meet there', () => {
         // Waypoint B sits on BOX's north edge; both legs stay outside
         const pts = [{ name: 'A', lat: 53.5, lon: 21.2 }, { name: 'B', lat: 53, lon: 21.5 }, { name: 'C', lat: 53.5, lon: 21.8 }];

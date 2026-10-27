@@ -449,9 +449,15 @@ async function checkAirspace(points, legs, cruiseAlt, { departure = null, buffer
     const totH  = legs.reduce((s, l) => s + (isFinite(l.eteH) ? l.eteH : 0), 0);
     const start = departure ?? new Date();
     const end   = new Date(start.getTime() + totH * 3600e3);
+    // A leg without a valid ground speed leaves the arrival time unknown, so the
+    // flight can't be shown to fall within the chosen plan or AIRAC cycle
+    const timesKnown = !departure || legs.every(l => isFinite(l.eteH));
+    if (!timesKnown)
+        warnings.push('Some legs have no valid ground speed — flight times are unknown, so the plan and AIRAC validity can\'t be checked.');
     // Structures can only be called clear when the chosen cycle covers the flight
-    const structuresOk = !(departure && cycle && (start < Date.parse(cycle.start) || (cycle.end && end > Date.parse(cycle.end))));
-    if (!structuresOk)
+    const outsideCycle = departure && cycle && (start < Date.parse(cycle.start) || (cycle.end && end > Date.parse(cycle.end)));
+    const structuresOk = timesKnown && !outsideCycle;
+    if (outsideCycle)
         warnings.push(`The flight is outside the chosen AIRAC cycle (${esc(isoWindow(cycle.start, cycle.end))}) — check the cycle in force on the day.`);
 
     // Reservations can only show an area is free when the chosen plan is
@@ -461,6 +467,7 @@ async function checkAirspace(points, legs, cruiseAlt, { departure = null, buffer
     if (!departure) warnings.push('No departure time set — every reservation in the chosen plan is treated as active.');
     const validity = planValidity(meta, plan);
     const planFrom = parseUtc(meta.dates?.[PLANS[plan].window]?.[0]), planTo = parseUtc(meta.dates?.[PLANS[plan].window]?.[1]);
+    if (!timesKnown) reliable = false;
     if (!validity) {
         reliable = false;
         warnings.push(`${esc(PLANS[plan].label)} is not published yet — reservations unknown.`);

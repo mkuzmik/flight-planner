@@ -490,8 +490,10 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
             }
             const active = inBand.filter(r => timeHit(r.start, r.end));
             const shown = active.length ? active : inBand;
-            result.push({ ...base, status: active.length ? 'active' : reservationsReliable ? 'inactive' : 'unverified',
-                          belowCruise: shown.every(r => below(r.upperFt)), reservations: shown, services: [] });
+            const status = active.length ? 'active' : reservationsReliable ? 'inactive' : 'unverified';
+            // Another day's reservation limits can't show the area is below you
+            result.push({ ...base, status, belowCruise: status !== 'unverified' && shown.every(r => below(r.upperFt)),
+                          reservations: shown, services: [] });
         }
     }
     return result;
