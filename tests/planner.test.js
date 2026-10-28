@@ -6,7 +6,9 @@ import {
     fmtTime, r0, r1, r2,
     parseAltitudeLimit, pointInPolygon, segmentPolygonIntervals,
     buildAirspaces, findAirspaceCrossings, airacCycles, staticAirspaceForCycle, cycleInForce, crossingsByLeg,
+    airspaceDataStale, AIRSPACE_REFRESH_UTC,
 } from '../js/planner.js';
+import { readFileSync } from 'node:fs';
 
 // ── GPX fixtures ──────────────────────────────────────────────────────────────
 const rteGpx = (pts) =>
@@ -882,5 +884,33 @@ describe('crossingsByLeg', () => {
     it('returns an empty list for legs with no airspace', () => {
         const only1 = { ...crossing, enterLeg: 1, enterNm: 50 };
         expect(crossingsByLeg([only1], ROUTE_LEGS, DEP)[0]).toEqual([]);
+    });
+});
+
+describe('airspaceDataStale', () => {
+    const t = iso => Date.parse(iso);
+
+    it('accepts data from the latest scheduled refresh', () => {
+        expect(airspaceDataStale(t('2026-10-28T06:20:00Z'), t('2026-10-28T15:00:00Z'))).toBe(false);
+        expect(airspaceDataStale(t('2026-10-27T16:20:00Z'), t('2026-10-28T06:00:00Z'))).toBe(false);
+    });
+    it('allows the 2 h grace for a delayed scheduled run', () => {
+        // The 06:17 refresh hasn't run yet at 08:00 — not stale until 08:17
+        expect(airspaceDataStale(t('2026-10-27T16:20:00Z'), t('2026-10-28T08:00:00Z'))).toBe(false);
+        expect(airspaceDataStale(t('2026-10-27T16:20:00Z'), t('2026-10-28T08:17:00Z'))).toBe(true);
+    });
+    it('flags data that missed a refresh, across midnight too', () => {
+        expect(airspaceDataStale(t('2026-10-28T06:20:00Z'), t('2026-10-28T19:00:00Z'))).toBe(true);
+        expect(airspaceDataStale(t('2026-10-27T06:20:00Z'), t('2026-10-28T01:00:00Z'))).toBe(true);
+    });
+    it('treats an unknown fetch time as stale', () => {
+        expect(airspaceDataStale(NaN, t('2026-10-28T12:00:00Z'))).toBe(true);
+    });
+    it('matches the Pages workflow schedule', () => {
+        const yml = readFileSync('.github/workflows/pages.yml', 'utf8')  // vitest runs from the repo root;
+        const crons = [...yml.matchAll(/cron:\s*"(\d+) (\d+) \* \* \*"/g)]
+            .map(([, m, h]) => `${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
+        expect(crons.length).toBe((yml.match(/cron:/g) ?? []).length);
+        expect(crons.sort()).toEqual([...AIRSPACE_REFRESH_UTC].sort());
     });
 });

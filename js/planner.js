@@ -339,6 +339,28 @@ export function cycleInForce(cycles, t) {
         ?? cycles[cycles.length - 1] ?? null;
 }
 
+// UTC times the Pages workflow refreshes airspace data — after the day's AUP takes
+// effect (06:00) and after the next-day AUP is published. Keep in sync with the cron
+// in .github/workflows/pages.yml (a test checks it).
+export const AIRSPACE_REFRESH_UTC = ['06:17', '16:17'];
+
+// True when data fetched at fetchedAt (ms) has missed a scheduled refresh: one was due
+// at least graceH before now (GitHub may delay scheduled runs) and the data predates it.
+// An unknown fetch time counts as stale.
+export function airspaceDataStale(fetchedAt, now, schedule = AIRSPACE_REFRESH_UTC, graceH = 2) {
+    if (!Number.isFinite(fetchedAt)) return true;
+    const deadline = now - graceH * 3600e3;
+    const today = Math.floor(deadline / 86400e3) * 86400e3;
+    let due = -Infinity;
+    for (const day of [today - 86400e3, today])
+        for (const hm of schedule) {
+            const [h, m] = hm.split(':').map(Number);
+            const t = day + (h * 60 + m) * 60e3;
+            if (t <= deadline && t > due) due = t;
+        }
+    return fetchedAt < due;
+}
+
 // Features of the chosen cycle (identified by its start), plus any without validity dates
 export function staticAirspaceForCycle(features, cycleStart) {
     return features.filter(f => !f.properties.startTime || f.properties.startTime === cycleStart);

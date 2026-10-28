@@ -1,11 +1,15 @@
 name: Deploy Pages
 
-# Rebuilds the site with fresh PANSA airspace data (AUP/UUP change through the day).
+# Rebuilds the site with fresh PANSA airspace data twice a day (UTC): after the day's
+# AUP takes effect at 06:00, and after the next-day AUP is published in the afternoon.
+# Off the full hour, when GitHub delays or drops the most scheduled runs.
+# Keep in sync with AIRSPACE_REFRESH_UTC in js/planner.js (a test checks it).
 on:
   push:
     branches: ["main"]
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "17 6 * * *"
+    - cron: "17 16 * * *"
   workflow_dispatch:
 
 permissions:

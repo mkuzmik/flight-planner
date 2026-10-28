@@ -43,7 +43,7 @@ The route is checked against Polish airspace published by PANSA. Results appear 
 
 Airspace within the buffer (default 1 NM) of the route is listed too, with its closest distance when the route doesn't enter it. Each reservation is tagged with the PANSA file it comes from (AUP, UUP, next-day AUP), and the page lists the files used with their validity. Vertically, airspace starting more than the vertical buffer (default 500 ft) above cruise is left out; everything below cruise is listed and marked "below you" when it ends below cruise. Missing altitude or departure time is treated as a possible conflict. It is a planning aid — always check the current AUP/UUP and NOTAMs.
 
-PANSA's API doesn't allow cross-origin requests, so the data is downloaded at deploy time: `.github/workflows/pages.yml` runs `scripts/fetch-airspace.mjs` every 30 minutes and deploys it with the site to `data/airspace/`. GitHub Pages must use **Settings → Pages → Source: GitHub Actions**.
+PANSA's API doesn't allow cross-origin requests, so the data is downloaded at deploy time: `.github/workflows/pages.yml` runs `scripts/fetch-airspace.mjs` twice a day — at 06:17 UTC, after the day's AUP takes effect (06:00), and at 16:17 UTC, after the next-day AUP is published — and deploys it with the site to `data/airspace/`. UUPs published between runs are not included (the page says so), and the page warns when the data has missed a scheduled refresh (more than 2 h late). GitHub Pages must use **Settings → Pages → Source: GitHub Actions**.
 
 ## Development
 
