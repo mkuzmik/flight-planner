@@ -362,11 +362,13 @@ export function airspaceDataStale(fetchedAt, now, schedule = AIRSPACE_REFRESH_UT
 }
 
 // Whether reservations fetched at fetchedAt (ms) can still show an area is free at now.
-// UUPs can change the day's plan at any time, so a plan that includes them is trusted
-// only for maxAgeH after the fetch; the next-day AUP until a scheduled refresh is overdue.
-export function reservationsFresh(fetchedAt, now, { includesUup, maxAgeH = 2 } = {}) {
+// UUPs can change a plan once it is in force, so a plan that includes them or has
+// taken effect (planStart, ms; unknown counts as in force) is trusted only for maxAgeH
+// after the fetch; the next-day AUP until it takes effect or a refresh is overdue.
+export function reservationsFresh(fetchedAt, now, { includesUup, planStart, maxAgeH = 2 } = {}) {
     if (airspaceDataStale(fetchedAt, now)) return false;
-    return !includesUup || now - fetchedAt <= maxAgeH * 3600e3;
+    const updatable = includesUup || !(now < planStart);
+    return !updatable || now - fetchedAt <= maxAgeH * 3600e3;
 }
 
 // Features of the chosen cycle (identified by its start), plus any without validity dates

@@ -923,12 +923,18 @@ describe('reservationsFresh', () => {
         expect(reservationsFresh(MORNING, t('2026-10-28T08:20:00Z'), { includesUup: true })).toBe(true);
         expect(reservationsFresh(MORNING, t('2026-10-28T15:00:00Z'), { includesUup: true })).toBe(false);
     });
-    it('trusts the next-day AUP until a scheduled refresh is overdue', () => {
+    it('trusts the next-day AUP until it takes effect — UUPs may follow from then', () => {
+        const AFTERNOON = t('2026-10-27T16:20:00Z'), START = t('2026-10-28T06:00:00Z');
+        expect(reservationsFresh(AFTERNOON, t('2026-10-28T05:59:00Z'), { includesUup: false, planStart: START })).toBe(true);
+        // The 06:17 refresh hasn't run yet at 07:00: the cached next-day AUP is in force
+        expect(reservationsFresh(AFTERNOON, t('2026-10-28T07:00:00Z'), { includesUup: false, planStart: START })).toBe(false);
+    });
+    it('treats a plan with an unknown start as already in force', () => {
         const AFTERNOON = t('2026-10-27T16:20:00Z');
-        expect(reservationsFresh(AFTERNOON, t('2026-10-28T06:00:00Z'), { includesUup: false })).toBe(true);
-        expect(reservationsFresh(AFTERNOON, t('2026-10-28T09:00:00Z'), { includesUup: false })).toBe(false);
+        expect(reservationsFresh(AFTERNOON, t('2026-10-27T20:00:00Z'), { includesUup: false, planStart: NaN })).toBe(false);
+        expect(reservationsFresh(AFTERNOON, t('2026-10-27T20:00:00Z'), { includesUup: false })).toBe(false);
     });
     it('never trusts data of unknown age', () => {
-        expect(reservationsFresh(NaN, t('2026-10-28T12:00:00Z'), { includesUup: false })).toBe(false);
+        expect(reservationsFresh(NaN, t('2026-10-28T12:00:00Z'), { includesUup: false, planStart: t('2026-10-29T06:00:00Z') })).toBe(false);
     });
 });

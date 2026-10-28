@@ -484,7 +484,7 @@ async function checkAirspace(points, legs, cruiseAlt, { departure = null, buffer
     if (airspaceDataStale(fetchedAt, Date.now())) {
         reliable = false;
         warnings.push(`Airspace data is ${isFinite(ageH) ? Math.round(ageH) + ' h old and missed a scheduled refresh' : 'of unknown age'} — check the current AUP/UUP before flight.`);
-    } else if (!reservationsFresh(fetchedAt, Date.now(), { includesUup: names.includes('uup') })) {
+    } else if (!reservationsFresh(fetchedAt, Date.now(), { includesUup: names.includes('uup'), planStart: planFrom })) {
         reliable = false;
         warnings.push(`Reservations were fetched ${Math.round(ageH)} h ago and UUPs published since are not included — reservable areas on the route are marked VERIFY. Check the current AUP/UUP before flight.`);
     }
