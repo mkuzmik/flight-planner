@@ -6,7 +6,7 @@ import {
     fmtTime, r0, r1, r2,
     parseAltitudeLimit, pointInPolygon, segmentPolygonIntervals,
     buildAirspaces, findAirspaceCrossings, airacCycles, staticAirspaceForCycle, cycleInForce, crossingsByLeg,
-    airspaceDataStale, AIRSPACE_REFRESH_UTC,
+    airspaceDataStale, reservationsFresh, AIRSPACE_REFRESH_UTC,
 } from '../js/planner.js';
 import { readFileSync } from 'node:fs';
 
@@ -912,5 +912,23 @@ describe('airspaceDataStale', () => {
             .map(([, m, h]) => `${h.padStart(2, '0')}:${m.padStart(2, '0')}`);
         expect(crons.length).toBe((yml.match(/cron:/g) ?? []).length);
         expect(crons.sort()).toEqual([...AIRSPACE_REFRESH_UTC].sort());
+    });
+});
+
+describe('reservationsFresh', () => {
+    const t = iso => Date.parse(iso);
+    const MORNING = t('2026-10-28T06:20:00Z');
+
+    it('trusts the day\'s plan (AUP + UUP) only for 2 h after the fetch — UUPs may follow', () => {
+        expect(reservationsFresh(MORNING, t('2026-10-28T08:20:00Z'), { includesUup: true })).toBe(true);
+        expect(reservationsFresh(MORNING, t('2026-10-28T15:00:00Z'), { includesUup: true })).toBe(false);
+    });
+    it('trusts the next-day AUP until a scheduled refresh is overdue', () => {
+        const AFTERNOON = t('2026-10-27T16:20:00Z');
+        expect(reservationsFresh(AFTERNOON, t('2026-10-28T06:00:00Z'), { includesUup: false })).toBe(true);
+        expect(reservationsFresh(AFTERNOON, t('2026-10-28T09:00:00Z'), { includesUup: false })).toBe(false);
+    });
+    it('never trusts data of unknown age', () => {
+        expect(reservationsFresh(NaN, t('2026-10-28T12:00:00Z'), { includesUup: false })).toBe(false);
     });
 });
