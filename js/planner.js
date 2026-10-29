@@ -339,6 +339,38 @@ export function cycleInForce(cycles, t) {
         ?? cycles[cycles.length - 1] ?? null;
 }
 
+// UTC times the Pages workflow refreshes airspace data — after the day's AUP takes
+// effect (06:00) and after the next-day AUP is published. Keep in sync with the cron
+// in .github/workflows/pages.yml (a test checks it).
+export const AIRSPACE_REFRESH_UTC = ['06:17', '16:17'];
+
+// True when data fetched at fetchedAt (ms) has missed a scheduled refresh: one was due
+// at least graceH before now (GitHub may delay scheduled runs) and the data predates it.
+// An unknown fetch time counts as stale.
+export function airspaceDataStale(fetchedAt, now, schedule = AIRSPACE_REFRESH_UTC, graceH = 2) {
+    if (!Number.isFinite(fetchedAt)) return true;
+    const deadline = now - graceH * 3600e3;
+    const today = Math.floor(deadline / 86400e3) * 86400e3;
+    let due = -Infinity;
+    for (const day of [today - 86400e3, today])
+        for (const hm of schedule) {
+            const [h, m] = hm.split(':').map(Number);
+            const t = day + (h * 60 + m) * 60e3;
+            if (t <= deadline && t > due) due = t;
+        }
+    return fetchedAt < due;
+}
+
+// Whether reservations fetched at fetchedAt (ms) can still show an area is free at now.
+// UUPs can change a plan once it is in force, so a plan that includes them or has
+// taken effect (planStart, ms; unknown counts as in force) is trusted only for maxAgeH
+// after the fetch; the next-day AUP until it takes effect or a refresh is overdue.
+export function reservationsFresh(fetchedAt, now, { includesUup, planStart, maxAgeH = 2 } = {}) {
+    if (airspaceDataStale(fetchedAt, now)) return false;
+    const updatable = includesUup || !(now < planStart);
+    return !updatable || now - fetchedAt <= maxAgeH * 3600e3;
+}
+
 // Features of the chosen cycle (identified by its start), plus any without validity dates
 export function staticAirspaceForCycle(features, cycleStart) {
     return features.filter(f => !f.properties.startTime || f.properties.startTime === cycleStart);

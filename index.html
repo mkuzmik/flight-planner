@@ -230,7 +230,8 @@
 
 <script type="module">
 import { parseGpx, computeLegs, computeFuelSummary, findNearestVor, fmtTime, r0, r1, r2,
-         buildAirspaces, findAirspaceCrossings, staticAirspaceForCycle, cycleInForce, crossingsByLeg } from './js/planner.js';
+         buildAirspaces, findAirspaceCrossings, staticAirspaceForCycle, cycleInForce, crossingsByLeg,
+         airspaceDataStale, reservationsFresh, AIRSPACE_REFRESH_UTC } from './js/planner.js';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 document.getElementById('calcBtn').addEventListener('click', () => exclusive(calculate));
@@ -478,10 +479,14 @@ async function checkAirspace(points, legs, cruiseAlt, { departure = null, buffer
         reliable = false;
         warnings.push(`The chosen plan has expired (${esc(validity)}) — reservations unknown.`);
     }
-    const ageH = (Date.now() - Date.parse(meta.fetchedAt)) / 3600e3;
-    if (!(ageH <= 2)) {
+    const fetchedAt = Date.parse(meta.fetchedAt);
+    const ageH = (Date.now() - fetchedAt) / 3600e3;
+    if (airspaceDataStale(fetchedAt, Date.now())) {
         reliable = false;
-        warnings.push(`Airspace data is ${isFinite(ageH) ? Math.round(ageH) + ' h old' : 'of unknown age'} — check the current AUP/UUP before flight.`);
+        warnings.push(`Airspace data is ${isFinite(ageH) ? Math.round(ageH) + ' h old and missed a scheduled refresh' : 'of unknown age'} — check the current AUP/UUP before flight.`);
+    } else if (!reservationsFresh(fetchedAt, Date.now(), { includesUup: names.includes('uup'), planStart: planFrom })) {
+        reliable = false;
+        warnings.push(`Reservations were fetched ${Math.round(ageH)} h ago and UUPs published since are not included — reservable areas on the route are marked VERIFY. Check the current AUP/UUP before flight.`);
     }
     const crossings = findAirspaceCrossings(points, legs, airspaces,
                                             { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable,
@@ -569,7 +574,8 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
     const sourceList = names.map(n => meta.counts?.[n]
         ? `${LAYER_LABELS[n]} ${fmtWindow(meta.dates?.[n])}`
         : `${LAYER_LABELS[n]} not published yet`).join(' · ');
-    html += `<p class="as-note">Reservations: ${esc(PLANS[plan].label)} — ${esc(sourceList)} (PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC). `
+    html += `<p class="as-note">Reservations: ${esc(PLANS[plan].label)} — ${esc(sourceList)} (PANSA update ${esc(meta.lastUpdate ?? '—')} UTC, fetched ${esc(fmtUtc(meta.fetchedAt))} UTC; refreshed daily at ${esc(AIRSPACE_REFRESH_UTC.join(' and '))} UTC`
+          + (names.includes('uup') ? `, so UUPs published since the fetch are not included` : '') + `). `
           + (cycle ? `Airspace structures: AIRAC cycle valid ${esc(isoWindow(cycle.start, cycle.end))}. ` : '')
           + `Planning aid only — check the current AUP/UUP and NOTAMs before flight.</p>`;
     card.innerHTML = html;
