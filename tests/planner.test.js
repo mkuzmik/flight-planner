@@ -796,9 +796,20 @@ describe('findAirspaceCrossings', () => {
         }
     });
 
-    it('keeps a reserved area as VERIFY when reservations are unreliable, whatever their limits', () => {
+    it('leaves out a reserved area starting above cruise + vertical buffer even when reservations are unreliable', () => {
         const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA',
             [['2026-10-25T06:00:00Z', '2026-10-26T06:00:00Z', 'F225', 'F315']])]]);
+        const opts = { cruiseAltFt: 3500, departure: DEP, verticalBufferFt: 500 };
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, opts)).toEqual([]);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { ...opts, reservationsReliable: false })).toEqual([]);
+        // Within the vertical buffer it's still kept as VERIFY
+        const near = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA',
+            [['2026-10-20T06:00:00Z', '2026-10-21T06:00:00Z', 'A040', 'F095']])]]);
+        expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, near, { ...opts, reservationsReliable: false })[0].status).toBe('unverified');
+    });
+
+    it('keeps a reserved area with no known limits as VERIFY when reservations are unreliable', () => {
+        const as = buildAirspaces([], [[reservedFeature('EPTS1', 'TSA', [])]]);
         const opts = { cruiseAltFt: 3500, departure: DEP, verticalBufferFt: 500 };
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, opts)).toEqual([]);
         expect(findAirspaceCrossings(ROUTE, ROUTE_LEGS, as, { ...opts, reservationsReliable: false })[0].status).toBe('unverified');

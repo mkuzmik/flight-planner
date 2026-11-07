@@ -441,8 +441,9 @@ const STATIC_STATUS = { P: 'prohibited', R: 'restricted', ADIZ: 'adiz' };
 // the time the aircraft is inside or within the buffer. distanceNm is the
 // closest approach (0 when the route enters the airspace).
 // Vertically, airspace (or a reservation) is reported unless its lower limit is
-// more than verticalBufferFt above cruise (a reserved area is kept as 'unverified'
-// instead when reservations are unreliable); everything below cruise is kept and
+// more than verticalBufferFt above cruise — also when reservations are unreliable
+// (a reserved area with no known reservations at all is then kept as 'unverified');
+// everything below cruise is kept and
 // flagged belowCruise. Missing altitude or timing is treated as a possible
 // conflict, never as clear. With reservationsReliable = false (flight
 // outside the published AUP, or stale data) a reserved area with no matching
@@ -515,8 +516,10 @@ export function findAirspaceCrossings(points, legs, airspaces, { cruiseAltFt = 0
         } else {
             const inBand = c.as.reservations.filter(r => relevantAlt(r.lowerFt));
             if (!inBand.length) {
-                // Unreliable data can't show the area is irrelevant at your altitude
-                if (!reservationsReliable)
+                // Every known reservation starts above cruise + buffer: left out, even
+                // with unreliable data. With no known limits at all, unreliable data
+                // can't show the area is irrelevant at your altitude.
+                if (!reservationsReliable && !c.as.reservations.length)
                     result.push({ ...base, status: 'unverified', belowCruise: false, reservations: c.as.reservations, services: [] });
                 continue;
             }
