@@ -21,6 +21,8 @@
         @media (max-width: 560px) { .form-grid .wide { grid-column: auto; } }
         label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
         label small { font-weight: 400; }
+        .checkbox-label { display: flex; align-items: center; gap: 0.4rem; font-weight: 400; color: #374151;
+                          font-size: 0.93rem; padding: 0.5rem 0; cursor: pointer; }
 
         input[type=text], input[type=number], input[type=file], input[type=datetime-local] {
             width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid #dde1e8; border-radius: 8px;
@@ -174,25 +176,29 @@
                 <input type="number" id="cruiseAlt" placeholder="e.g. 3500" min="0" step="100">
             </div>
             <div>
+                <label for="checkAirspace">Airspace Check <small>(Poland, PANSA)</small></label>
+                <label class="checkbox-label"><input type="checkbox" id="checkAirspace" checked> Check route against airspace</label>
+            </div>
+            <div class="as-input">
                 <label for="bufferNm">Airspace Buffer <small>(NM either side of route)</small></label>
                 <input type="number" id="bufferNm" placeholder="1" min="0" step="0.5" value="1">
             </div>
-            <div>
+            <div class="as-input">
                 <label for="vBufferFt">Vertical Buffer <small>(ft above cruise)</small></label>
                 <input type="number" id="vBufferFt" placeholder="500" min="0" step="100" value="500">
             </div>
-            <div>
+            <div class="as-input">
                 <label for="departure">Departure <small>(UTC, optional)</small></label>
                 <input type="datetime-local" id="departure">
             </div>
-            <div class="wide">
+            <div class="wide as-input">
                 <label for="aupPlan">Reservation Plan <small>(PANSA AUP/UUP, validity in UTC)</small></label>
                 <select id="aupPlan" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
                     <option value="today">Today — AUP + UUP</option>
                     <option value="tomorrow">Tomorrow — next-day AUP</option>
                 </select>
             </div>
-            <div class="wide">
+            <div class="wide as-input">
                 <label for="airacCycle">AIRAC Cycle <small>(airspace structures, validity in UTC)</small></label>
                 <select id="airacCycle" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #dde1e8;border-radius:8px;font-size:0.93rem;background:#fafbfc;">
                     <option value="">Loading…</option>
@@ -486,7 +492,7 @@ async function checkAirspace(points, legs, cruiseAlt, { departure = null, buffer
         warnings.push(`Airspace data is ${isFinite(ageH) ? Math.round(ageH) + ' h old and missed a scheduled refresh' : 'of unknown age'} — check the current AUP/UUP before flight.`);
     } else if (!reservationsFresh(fetchedAt, Date.now(), { includesUup: names.includes('uup'), planStart: planFrom })) {
         reliable = false;
-        warnings.push(`Reservations were fetched ${Math.round(ageH)} h ago and UUPs published since are not included — reservable areas on the route are marked VERIFY. Check the current AUP/UUP before flight.`);
+        warnings.push(`Reservations were fetched ${Math.round(ageH)} h ago and UUPs published since are not included — reservable areas on the route starting within the vertical buffer are marked VERIFY. Check the current AUP/UUP before flight.`);
     }
     const crossings = findAirspaceCrossings(points, legs, airspaces,
                                             { cruiseAltFt: cruiseAlt, departure, reservationsReliable: reliable,
@@ -581,6 +587,19 @@ function renderAirspace(result, legs, errorMsg = null, pending = false) {
     card.innerHTML = html;
 }
 
+// Airspace check on/off — its inputs are shown only when it's on
+function airspaceEnabled() { return document.getElementById('checkAirspace').checked; }
+function syncAirspaceInputs() {
+    for (const el of document.querySelectorAll('.as-input')) el.hidden = !airspaceEnabled();
+}
+// Said on the page (and printout) so a missing airspace list isn't read as "no airspace"
+function renderAirspaceOff() {
+    const card = document.getElementById('airspaceCard');
+    card.style.display = 'block';
+    card.innerHTML = `<h3 style="font-size:0.95rem;font-weight:700;color:#1e3a5f;margin-bottom:0.6rem">Airspace</h3>`
+        + `<p class="as-warn">⚠ Airspace not checked (turned off) — check the AIP, AUP/UUP and NOTAMs before flight.</p>`;
+}
+
 async function dryRun() {
     document.getElementById('windDir').value       = 270;
     document.getElementById('windSpeed').value     = 15;
@@ -602,7 +621,7 @@ async function dryRun() {
     const resp = await fetch('assets/example_flight_log.gpx');
     if (!resp.ok) return err('Could not load example GPX file.');
     await run(await resp.text(), 270, 15, 100, 6.5, 1.5, 2.0, 45, 'EPNC', 3, 6, 3500,
-              { departure: nextHour, bufferNm: 1, vBufferFt: 500, plan: 'today', cycleStart: document.getElementById('airacCycle').value });
+              { enabled: airspaceEnabled(), departure: nextHour, bufferNm: 1, vBufferFt: 500, plan: 'today', cycleStart: document.getElementById('airacCycle').value });
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -631,11 +650,11 @@ async function calculate() {
     if (isNaN(windSpeed) || windSpeed < 0)              return err('Wind speed must be ≥ 0.');
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
-    if (isNaN(bufferNm) || bufferNm < 0)                return err('Airspace buffer must be ≥ 0 NM.');
-    if (isNaN(vBufferFt) || vBufferFt < 0)              return err('Vertical buffer must be ≥ 0 ft.');
+    if (airspaceEnabled() && (isNaN(bufferNm) || bufferNm < 0))   return err('Airspace buffer must be ≥ 0 NM.');
+    if (airspaceEnabled() && (isNaN(vBufferFt) || vBufferFt < 0)) return err('Vertical buffer must be ≥ 0 ft.');
 
     await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt,
-              { departure, bufferNm, vBufferFt, plan: document.getElementById('aupPlan').value,
+              { enabled: airspaceEnabled(), departure, bufferNm, vBufferFt, plan: document.getElementById('aupPlan').value,
                 cycleStart: document.getElementById('airacCycle').value });
 }
 
@@ -705,6 +724,11 @@ async function run(gpxText, windDir, windSpeed, tas, fuelGph, taxiFuel = 0, clim
         renderResults(legs, points, pointVors, declination, windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, altInfo, tgCount, tgCircuitMin, cruiseAlt);
 
         // Airspace check — isolated so failures don't abort main plan
+        if (airspaceOpts.enabled === false) {
+            renderAirspaceOff();
+            setStatus(`Declination: ${declination.toFixed(2)}° (NOAA IGRF)`);
+            return;
+        }
         setStatus('Checking airspace…');
         renderAirspace(null, legs, null, true);
         try {
@@ -848,6 +872,8 @@ function renderResults(legs, points, pointVors, decl, windDir, windSpeed, tas, f
 
     document.getElementById('results').style.display = 'block';
 }
+document.getElementById('checkAirspace').addEventListener('change', syncAirspaceInputs);
+syncAirspaceInputs();
 initAirspaceOptions();
 </script>
 
