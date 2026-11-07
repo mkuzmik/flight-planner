@@ -29,6 +29,7 @@
             font-size: 0.93rem; transition: border-color 0.2s; background: #fafbfc;
         }
         input:focus { outline: none; border-color: #3b82f6; background: white; }
+        input[type=checkbox]:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
 
         .btn-row { margin-top: 1.25rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
         button { border: none; border-radius: 8px; padding: 0.6rem 1.4rem; font-size: 0.95rem;
@@ -644,17 +645,18 @@ async function calculate() {
     const bufferNm      = bufferVal === '' ? 1 : parseFloat(bufferVal);
     const vBufferVal    = document.getElementById('vBufferFt').value.trim();
     const vBufferFt     = vBufferVal === '' ? 500 : parseFloat(vBufferVal);
+    const airspaceOn    = airspaceEnabled();   // read once: validated and used with the same state
 
     if (!file)                                          return err('Please select a GPX file.');
     if (isNaN(windDir) || windDir < 0 || windDir > 360) return err('Wind direction: 0–360°');
     if (isNaN(windSpeed) || windSpeed < 0)              return err('Wind speed must be ≥ 0.');
     if (isNaN(tas) || tas <= 0)                         return err('TAS must be > 0.');
     if (isNaN(fuelGph) || fuelGph <= 0)                 return err('Fuel consumption must be > 0.');
-    if (airspaceEnabled() && (isNaN(bufferNm) || bufferNm < 0))   return err('Airspace buffer must be ≥ 0 NM.');
-    if (airspaceEnabled() && (isNaN(vBufferFt) || vBufferFt < 0)) return err('Vertical buffer must be ≥ 0 ft.');
+    if (airspaceOn && (isNaN(bufferNm) || bufferNm < 0))   return err('Airspace buffer must be ≥ 0 NM.');
+    if (airspaceOn && (isNaN(vBufferFt) || vBufferFt < 0)) return err('Vertical buffer must be ≥ 0 ft.');
 
     await run(await file.text(), windDir, windSpeed, tas, fuelGph, taxiFuel, climbFuel, reserveMin, alternateIcao, tgCount, tgCircuitMin, cruiseAlt,
-              { enabled: airspaceEnabled(), departure, bufferNm, vBufferFt, plan: document.getElementById('aupPlan').value,
+              { enabled: airspaceOn, departure, bufferNm, vBufferFt, plan: document.getElementById('aupPlan').value,
                 cycleStart: document.getElementById('airacCycle').value });
 }
 
